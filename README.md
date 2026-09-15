@@ -25,6 +25,14 @@ Ingest → Chunk → Embed → Index → Retrieve → Generate → Cite
 - RAG
 - Next.js
 
+## Project Structure
+
+- `backend/` — Python backend, document ingestion, RAG services, retrieval logic, and API endpoints.
+- `frontend/` — Next.js and TypeScript web application.
+- `data/sample-documents/` — Non-sensitive sample documents for local development and testing.
+- `evaluation/` — Retrieval, grounding, citation, refusal, and evaluation resources.
+- `docs/` — Architecture documentation, technical decisions, and development documentation.
+
 ## Team
 
 - **Ayman Velani** — RAG Architecture & Backend  
