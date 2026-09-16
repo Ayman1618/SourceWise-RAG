@@ -1,12 +1,13 @@
 import React from "react";
-import { ShieldCheck } from "lucide-react";
+import Link from "next/link";
+import { ShieldCheck, UserPlus, LogIn } from "lucide-react";
 
 export function Header() {
   return (
     <header className="border-b border-slate-200 bg-white sticky top-0 z-50">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 rounded bg-brand-900 flex items-center justify-center text-white shadow-sm">
+        <Link href="/" className="flex items-center space-x-3 group">
+          <div className="w-8 h-8 rounded bg-brand-900 flex items-center justify-center text-white shadow-sm group-hover:bg-brand-800 transition-colors">
             <ShieldCheck className="w-5 h-5 text-slate-100" />
           </div>
           <div>
@@ -17,12 +18,24 @@ export function Header() {
               Foundation v0.1
             </span>
           </div>
-        </div>
+        </Link>
 
-        <nav className="flex items-center space-x-6 text-sm font-medium text-slate-600">
-          <span className="hidden md:inline-block text-slate-500 text-xs tracking-wide uppercase font-mono">
-            Enterprise Knowledge Assistant
-          </span>
+        <nav className="flex items-center space-x-3 text-sm font-medium">
+          <Link
+            href="/login"
+            className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-slate-700 hover:bg-slate-100 transition-colors text-xs font-medium"
+          >
+            <LogIn className="w-3.5 h-3.5 text-slate-500" />
+            <span>Sign In</span>
+          </Link>
+
+          <Link
+            href="/signup"
+            className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-md bg-brand-900 text-white hover:bg-brand-800 transition-colors text-xs font-medium shadow-sm"
+          >
+            <UserPlus className="w-3.5 h-3.5" />
+            <span>Sign Up</span>
+          </Link>
         </nav>
       </div>
     </header>
