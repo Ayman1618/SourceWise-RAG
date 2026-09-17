@@ -1,4 +1,5 @@
 import React from "react";
+import Link from "next/link";
 import { EvidenceBadge } from "@/components/EvidenceBadge";
 import { ArrowRight, BookOpen, CheckCircle, FileText, Search } from "lucide-react";
 
@@ -25,20 +26,22 @@ export default function Home() {
 
         {/* Action Buttons */}
         <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
-          <button
-            type="button"
+          <Link
+            href="/ask"
             className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-6 py-3 rounded-md bg-brand-900 hover:bg-brand-800 text-white font-medium text-sm transition-colors duration-150 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2"
           >
             <span>Ask a Question</span>
             <ArrowRight className="w-4 h-4" />
-          </button>
+          </Link>
 
           <button
             type="button"
-            className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-6 py-3 rounded-md bg-white hover:bg-slate-50 text-slate-700 font-medium text-sm border border-slate-300 transition-colors duration-150 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2"
+            disabled
+            className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-6 py-3 rounded-md bg-white text-slate-400 font-medium text-sm border border-slate-200 cursor-not-allowed shadow-xs"
+            title="Knowledge Base browsing coming soon"
           >
-            <BookOpen className="w-4 h-4 text-slate-500" />
-            <span>Knowledge Base</span>
+            <BookOpen className="w-4 h-4 text-slate-300" />
+            <span>Knowledge Base (Soon)</span>
           </button>
         </div>
 
