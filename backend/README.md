@@ -50,14 +50,17 @@ backend/
 │   │   ├── generation.py     # Grounded Answer model & EvidenceStatus enum
 │   │   └── health.py         # Health check response schema
 │   └── services/
-│       ├── __init__.py       # Pipeline service interface package
+│       ├── __init__.py       # Pipeline service interface & implementation exports
+│       ├── markdown_parser.py# Markdown YAML frontmatter parser & normalizer
+│       ├── chunking.py       # Markdown-aware ChunkingService (500-800 tok, 50-100 overlap)
+│       ├── ingestion.py      # BaseIngestionService contract & DocumentIngestionService
 │       ├── embedding.py      # BaseEmbeddingService & OpenAIEmbeddingService
 │       ├── vector_store.py   # BaseVectorStoreService & QdrantVectorStoreService
-│       ├── ingestion.py      # BaseIngestionService abstract interface
 │       ├── retrieval.py      # BaseRetrievalService abstract interface
 │       └── generation.py     # BaseGenerationService abstract interface
 ├── tests/
 │   ├── __init__.py           # Test suite package
+│   ├── test_ingestion_chunking.py # Ingestion, chunking, overlap & boundary tests
 │   ├── test_models.py        # Model validation and traceability tests
 │   ├── test_embedding.py     # Embedding service contracts & OpenAI mock tests
 │   ├── test_vector_store.py  # Vector store contracts & Qdrant mock tests
@@ -65,6 +68,7 @@ backend/
 ├── requirements.txt          # Python dependencies
 ├── .env.example              # Example environment configuration
 └── README.md                 # Backend documentation
+
 ```
 
 ---
@@ -150,6 +154,86 @@ All settings are configured via environment variables or a `.env` file using Pyd
 | `QDRANT_VECTOR_SIZE` | `1536` | Vector dimension size matching embedding model |
 | `QDRANT_DISTANCE` | `Cosine` | Distance metric for similarity (`Cosine`, `Dot`, `Euclid`) |
 | `QDRANT_TIMEOUT` | `10.0` | Connection timeout in seconds |
+
+---
+
+## Document Ingestion & Chunking Pipeline
+
+The ingestion and chunking pipeline processes raw Markdown knowledge documents into canonical `Document` objects and segments them into discrete, citation-ready `Chunk` objects.
+
+```
+Raw Markdown (with YAML Frontmatter)
+            │
+            ▼
+    [MarkdownParser]
+            │   ├── Extracts frontmatter metadata & strips delimiters
+            │   ├── Infers title from `# Heading` if missing
+            │   └── Generates slugified document_id fallback
+            ▼
+   Canonical Document
+            │
+            ▼
+    [ChunkingService]
+            │   ├── Markdown-aware boundary splitting (headers, paragraphs, code blocks)
+            │   ├── Targets 500–800 tokens per chunk
+            │   ├── Preserves 50–100 token overlap across sentence boundaries
+            │   └── Generates deterministic chunk_id: {document_id}#chunk_{index}
+            ▼
+   Traceable Chunks (Preserving document_id & source metadata)
+```
+
+### Key Components
+
+1. **`MarkdownParser` (`app/services/markdown_parser.py`)**:
+   - Parses YAML frontmatter headers delimited by `---` using `yaml.safe_load`.
+   - Maps standard metadata fields (`document_id`, `title`, `source_type`, `product`, `version`, `department`, `owner`, `last_updated`, `access_level`, `language`).
+   - Normalizes any non-standard frontmatter keys into the `metadata` dictionary.
+   - **Title Fallback**: If `title` is missing in frontmatter, extracts the first level-1 Markdown heading (`# Heading`). If no heading exists, falls back to the file stem.
+   - **Document ID Fallback**: If `document_id` is missing in frontmatter, derives a deterministic slug from the source file stem.
+   - **Error Handling**: Raises `MarkdownParseError` on invalid YAML syntax, missing delimiters, or empty document bodies.
+
+2. **`ChunkingService` (`app/services/chunking.py`)**:
+   - **Semantic Boundaries**: Splits content along Markdown headers (`#`, `##`, `###`), blank lines, and paragraphs. Keeps fenced code blocks (` ```...``` `) intact unless an individual block exceeds the maximum token window.
+   - **Token Windows**: Configurable with defaults targeting **500–800 tokens** per chunk.
+   - **Context Overlap**: Configurable with defaults targeting **50–100 tokens** of overlap between adjacent chunks, aligned to sentence boundaries.
+   - **Deterministic IDs**: Generates consistent identifiers in the format `{document_id}#chunk_{chunk_index}`.
+   - **Lineage & Provenance**: Every chunk preserves `document_id`, sequential `chunk_index`, estimated `token_count`, and inherits parent metadata (`title`, `source_path`, `version`, `access_level`, etc.).
+
+3. **`DocumentIngestionService` (`app/services/ingestion.py`)**:
+   - Concrete implementation of `BaseIngestionService`.
+   - `ingest(source)`: Accepts directory paths (e.g., `data/sample-documents/`), individual file paths, raw Markdown text strings, or dictionary payloads.
+   - `chunk_document(document)`: Delegates to `ChunkingService` to produce child chunks.
+   - `ingest_and_chunk(source)`: Convenience method that ingests documents and chunks them in a single call.
+
+### Usage Example
+
+```python
+import asyncio
+from pathlib import Path
+from app.services.ingestion import DocumentIngestionService
+
+async def main():
+    service = DocumentIngestionService()
+
+    # Ingest all sample documents from data/sample-documents/
+    sample_dir = Path("data/sample-documents")
+    documents, chunks = await service.ingest_and_chunk(sample_dir)
+
+    print(f"Ingested {len(documents)} documents, produced {len(chunks)} chunks.")
+
+    for chunk in chunks[:3]:
+        print(f"Chunk ID: {chunk.chunk_id}")
+        print(f"Parent Doc: {chunk.document_id}")
+        print(f"Tokens: {chunk.token_count}")
+        print(f"Title: {chunk.metadata.get('title')}")
+        print(f"Text snippet: {chunk.text[:100]}...\n")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+> **Note**: This pipeline runs entirely in-memory and offline. No embeddings are calculated, no vector database calls (Qdrant) are performed, and no external LLM APIs are invoked.
+
 
 ---
 
