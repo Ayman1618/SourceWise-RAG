@@ -9,9 +9,11 @@ from app.models.citation import Citation
 from app.models.document import Document
 from app.models.generation import Answer
 from app.models.retrieval import RetrievalQuery, RetrievedChunk
+from app.services.embedding import BaseEmbeddingService
 from app.services.generation import BaseGenerationService
 from app.services.ingestion import BaseIngestionService
 from app.services.retrieval import BaseRetrievalService
+from app.services.vector_store import BaseVectorStoreService
 
 
 class TestServiceInterfaces(unittest.TestCase):
@@ -27,6 +29,13 @@ class TestServiceInterfaces(unittest.TestCase):
 
         with self.assertRaises(TypeError):
             BaseGenerationService()  # type: ignore[abstract]
+
+        with self.assertRaises(TypeError):
+            BaseEmbeddingService()  # type: ignore[abstract]
+
+        with self.assertRaises(TypeError):
+            BaseVectorStoreService()  # type: ignore[abstract]
+
 
     def test_concrete_mock_implementations(self) -> None:
         """Verify services can be cleanly subclassed according to contracts."""
