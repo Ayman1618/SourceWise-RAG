@@ -6,12 +6,11 @@ Backend service for SourceWise RAG, an evidence-first enterprise knowledge assis
 
 ## Purpose
 
-The backend provides the API infrastructure, data models, pipeline contracts, and services for SourceWise RAG:
+The backend provides the API infrastructure, data models, vector storage layer, and pipeline services for SourceWise RAG:
 - **Foundational Architecture:** FastAPI application setup, structured configuration via Pydantic Settings, modular router layout, and health checks.
 - **RAG Pipeline Contracts:** Typed Pydantic data models establishing strict provenance and citation traceability between documents, chunks, retrieved evidence, citations, and generated answers.
-- **Service Interfaces:** Abstract base class contracts for document ingestion, retrieval, and grounded answer generation.
-
-> **Note:** Actual implementations of embedding generation, Qdrant vector indexing, hybrid search, and LLM answer generation will be incrementally introduced in subsequent PRs.
+- **Embedding Foundation:** Provider-agnostic embedding interface (`BaseEmbeddingService`) and OpenAI-compatible implementation (`OpenAIEmbeddingService`) supporting custom models and local endpoints.
+- **Qdrant Vector Store:** Vector database abstraction (`BaseVectorStoreService`) and Qdrant implementation (`QdrantVectorStoreService`) managing collection lifecycle, deterministic point indexing, and payload preservation.
 
 ---
 
@@ -20,6 +19,8 @@ The backend provides the API infrastructure, data models, pipeline contracts, an
 - **Runtime:** Python 3.10+ (Recommended: Python 3.12)
 - **Web Framework:** [FastAPI](https://fastapi.tiangolo.com/) (0.110+)
 - **ASGI Server:** [Uvicorn](https://www.uvicorn.org/) (0.28+)
+- **Vector Database Client:** [qdrant-client](https://github.com/qdrant/qdrant-client) (1.8+)
+- **LLM/Embedding Client:** [openai](https://github.com/openai/openai-python) (1.0+)
 - **Data Validation & Settings:** [Pydantic v2](https://docs.pydantic.dev/) & [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)
 - **Testing:** [pytest](https://docs.pytest.org/) (8.0+) / `unittest`
 
@@ -50,13 +51,17 @@ backend/
 │   │   └── health.py         # Health check response schema
 │   └── services/
 │       ├── __init__.py       # Pipeline service interface package
+│       ├── embedding.py      # BaseEmbeddingService & OpenAIEmbeddingService
+│       ├── vector_store.py   # BaseVectorStoreService & QdrantVectorStoreService
 │       ├── ingestion.py      # BaseIngestionService abstract interface
 │       ├── retrieval.py      # BaseRetrievalService abstract interface
 │       └── generation.py     # BaseGenerationService abstract interface
 ├── tests/
 │   ├── __init__.py           # Test suite package
 │   ├── test_models.py        # Model validation and traceability tests
-│   └── test_services.py      # Service contract and interface tests
+│   ├── test_embedding.py     # Embedding service contracts & OpenAI mock tests
+│   ├── test_vector_store.py  # Vector store contracts & Qdrant mock tests
+│   └── test_services.py      # Service interface contracts and re-exports
 ├── requirements.txt          # Python dependencies
 ├── .env.example              # Example environment configuration
 └── README.md                 # Backend documentation
@@ -77,6 +82,9 @@ Document (Normalized source file + enterprise metadata)
 Chunk (Extracted text segment retaining document_id)
    │
    ▼
+Vector Point in Qdrant (Embedding vector + metadata payload)
+   │
+   ▼
 RetrievedChunk (Ranked & scored candidate evidence)
    │
    ▼
@@ -86,21 +94,62 @@ Citation (Verifiable citation mapping passage → chunk_id → document_id)
 Answer (Grounded answer payload delivered to the client)
 ```
 
-### Why Traceability Matters
+### Vector Payload Schema
 
-1. **Hallucination Prevention:** By enforcing explicit `document_id` and `chunk_id` linkages at the data model level, answers cannot cite ungrounded information.
-2. **Auditability & Compliance:** Enterprise users can inspect the exact source passage and document metadata backing any claim.
-3. **Graceful Refusal:** When insufficient evidence is retrieved, the pipeline signals `evidence_status = "refused"` or `"insufficient"`.
+When chunks are stored in Qdrant, each point preserves the entire lineage required for precise citation attribution:
+
+```json
+{
+  "chunk_id": "doc_runbook_v1#chunk_0",
+  "document_id": "doc_runbook_v1",
+  "text": "Extracted text segment from the original document.",
+  "chunk_index": 0,
+  "token_count": 42,
+  "metadata": {
+    "title": "Production Incident Runbook",
+    "filepath": "ops/runbooks/incident.md",
+    "source": "confluence",
+    "tags": ["ops", "production"]
+  }
+}
+```
+
+Point IDs in Qdrant are generated deterministically as UUIDv5 hashes of `chunk_id`, guaranteeing idempotent upserts during re-indexing.
 
 ---
 
-## Pipeline Service Interfaces
+## Pipeline Services
 
-The backend defines abstract service contracts in `app/services/` to guide future implementations without coupling business logic to data models:
+- **`BaseEmbeddingService` / `OpenAIEmbeddingService`** (`embed_text`, `embed_texts`, `query_embedding`):
+  Generates dense vector representations using OpenAI or any OpenAI-compatible provider (e.g. Ollama, LiteLLM, Azure).
+- **`BaseVectorStoreService` / `QdrantVectorStoreService`** (`connect`, `collection_exists`, `create_collection_if_not_exists`, `store_chunks`, `close`):
+  Connects to Qdrant, provisions collections with configurable distance metrics, and stores chunk vectors with full provenance payloads.
+- **`BaseIngestionService`** (`ingest`, `chunk_document`): Contract for raw document parsing and chunking.
+- **`BaseRetrievalService`** (`retrieve`): Contract for semantic and hybrid evidence retrieval.
+- **`BaseGenerationService`** (`generate`): Contract for citation-grounded response generation.
 
-- **`BaseIngestionService`** (`ingest`, `chunk_document`): Normalizes raw sources into `Document` objects and chunks them into discrete `Chunk` instances.
-- **`BaseRetrievalService`** (`retrieve`): Queries dense/sparse/hybrid vector indexes and returns ordered `RetrievedChunk` evidence lists.
-- **`BaseGenerationService`** (`generate`): Synthesizes grounded `Answer` responses containing verified `Citation` references from retrieved evidence.
+---
+
+## Configuration & Environment Variables
+
+All settings are configured via environment variables or a `.env` file using Pydantic Settings.
+
+| Variable | Default | Description |
+|---|---|---|
+| `APP_ENV` | `development` | Environment name (`development`, `production`, `test`) |
+| `BACKEND_HOST` | `127.0.0.1` | Host address for FastAPI server |
+| `BACKEND_PORT` | `8000` | Port for FastAPI server |
+| `EMBEDDING_PROVIDER` | `openai` | Embedding provider identifier |
+| `EMBEDDING_API_KEY` | `None` | API key for OpenAI or compatible embedding provider |
+| `EMBEDDING_MODEL` | `text-embedding-3-small` | Model name used for embedding generation |
+| `EMBEDDING_BASE_URL` | `None` | Custom base URL for OpenAI-compatible proxies/local servers |
+| `EMBEDDING_BATCH_SIZE` | `64` | Maximum texts per embedding batch request |
+| `QDRANT_URL` | `http://localhost:6333` | Endpoint URL of the Qdrant vector database |
+| `QDRANT_API_KEY` | `None` | Optional API key for authenticated Qdrant instances |
+| `QDRANT_COLLECTION_NAME` | `sourcewise_documents` | Target collection name for chunk vectors |
+| `QDRANT_VECTOR_SIZE` | `1536` | Vector dimension size matching embedding model |
+| `QDRANT_DISTANCE` | `Cosine` | Distance metric for similarity (`Cosine`, `Dot`, `Euclid`) |
+| `QDRANT_TIMEOUT` | `10.0` | Connection timeout in seconds |
 
 ---
 
@@ -152,19 +201,23 @@ Copy the example environment file:
 cp .env.example .env
 ```
 
-Default settings in `.env.example`:
+Set your `EMBEDDING_API_KEY` and customized Qdrant endpoints in `.env` if connecting to live services.
 
-```env
-APP_ENV=development
-BACKEND_HOST=127.0.0.1
-BACKEND_PORT=8000
+### 4. (Optional) Run Local Qdrant for Development
+
+To run a local Qdrant instance for development with Docker:
+
+```bash
+docker run -d -p 6333:6333 -p 6334:6334 -v $(pwd)/qdrant_storage:/qdrant/storage:z qdrant/qdrant
 ```
+
+> **Note:** Running a live Qdrant server is **not** required for unit tests. All tests use mocks or in-memory instances.
 
 ---
 
 ## Running Tests
 
-Run the model and service contract test suite:
+Run the complete unit test suite (including model validation, mock embedding tests, and vector store tests):
 
 ```bash
 # Using pytest
@@ -226,10 +279,13 @@ FastAPI provides built-in, interactive OpenAPI documentation:
 
 ## Current Scope & Future Roadmap
 
-- **PR Scope:** Foundation server, typed core RAG models (`Document`, `Chunk`, `RetrievedChunk`, `Citation`, `Answer`), and abstract pipeline interfaces (`BaseIngestionService`, `BaseRetrievalService`, `BaseGenerationService`).
+- **PR Scope:** Vector search foundation layer:
+  - Settings configuration for embedding providers and Qdrant vector store.
+  - `BaseEmbeddingService` and `OpenAIEmbeddingService` with text/batch/query embedding methods.
+  - `BaseVectorStoreService` and `QdrantVectorStoreService` with collection management and chunk vector storage preserving citation provenance.
+  - Mocked unit tests for embedding and vector store services.
 - **Planned in Future PRs:**
-  - Document ingestion & markdown/PDF parsers (`app/services/ingestion.py`)
-  - Qdrant vector database integration & collection management
-  - Embeddings generation & hybrid retrieval (`app/services/retrieval.py`)
-  - OpenAI / LLM response generation with citation attribution (`app/services/generation.py`)
+  - Document ingestion & file parsers (`app/services/ingestion.py`)
+  - Retrieval and search endpoints with hybrid filtering (`app/services/retrieval.py`)
+  - Grounded answer generation and LLM response formatting (`app/services/generation.py`)
   - Query API endpoints (`/api/v1/query`, `/api/v1/retrieval`, `/api/v1/documents`)
