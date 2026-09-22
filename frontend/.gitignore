@@ -2,6 +2,10 @@
 /node_modules
 /.pnpm-store
 
+# allow frontend/lib source files
+!/lib
+!/lib/**
+
 # next.js
 /.next/
 /out/
