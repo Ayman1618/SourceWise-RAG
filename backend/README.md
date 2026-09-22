@@ -235,7 +235,20 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
+#### CLI Ingestion Runner
+
+You can also run the ingestion and chunking pipeline directly from the command line:
+
+```bash
+# Run against default sample documents (data/sample-documents/)
+python run_ingestion.py
+
+# Or specify a custom Markdown directory path
+python run_ingestion.py path/to/markdown/docs
+```
+
 > **Note**: This pipeline runs entirely in-memory and offline. No embeddings are calculated, no vector database calls (Qdrant) are performed, and no external LLM APIs are invoked.
+
 
 
 ---

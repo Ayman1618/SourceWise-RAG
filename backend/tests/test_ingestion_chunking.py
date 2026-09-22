@@ -6,7 +6,7 @@ import unittest
 from app.models.chunk import Chunk
 from app.models.document import Document
 from app.services.chunking import ChunkingService
-from app.services.ingestion import DocumentIngestionService
+from app.services.ingestion import DocumentIngestionService, run_ingestion_cli
 from app.services.markdown_parser import MarkdownParseError, MarkdownParser
 
 
@@ -338,6 +338,14 @@ Some inline content.
         self.assertEqual(len(docs), 1)
         self.assertEqual(docs[0].document_id, "doc_raw_string")
         self.assertEqual(docs[0].title, "Raw Ingest")
+
+    def test_run_ingestion_cli_helper(self) -> None:
+        """Verify synchronous CLI helper executes and returns documents and chunks."""
+        docs, chunks = run_ingestion_cli(self.sample_docs_dir)
+        self.assertEqual(len(docs), 3)
+        self.assertEqual(len(chunks), 10)
+        self.assertEqual(chunks[0].chunk_id, "sample-api-rate-limits#chunk_0")
+
 
 
 if __name__ == "__main__":

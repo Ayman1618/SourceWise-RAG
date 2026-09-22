@@ -165,3 +165,32 @@ class DocumentIngestionService(BaseIngestionService):
             chunks = await self.chunk_document(doc, **kwargs)
             all_chunks.extend(chunks)
         return documents, all_chunks
+
+
+def run_ingestion_cli(directory_path: str | Path | None = None) -> tuple[list[Document], list[Chunk]]:
+    """Synchronous CLI helper to ingest and chunk a directory and display summary metrics."""
+    import asyncio
+
+    target_dir = Path(directory_path) if directory_path else Path(__file__).resolve().parent.parent.parent.parent / "data" / "sample-documents"
+    service = DocumentIngestionService()
+    return asyncio.run(service.ingest_and_chunk(target_dir))
+
+
+if __name__ == "__main__":
+    import json
+    import sys
+
+    dir_arg = sys.argv[1] if len(sys.argv) > 1 else None
+    docs, chunks = run_ingestion_cli(dir_arg)
+    print(f"Number of documents: {len(docs)}")
+    print(f"Number of chunks: {len(chunks)}")
+    if chunks:
+        print("\nSample chunk metadata:")
+        print(json.dumps(chunks[0].metadata, indent=2))
+        print("\nSample chunk representation:")
+        print(f"Chunk ID: {chunks[0].chunk_id}")
+        print(f"Document ID: {chunks[0].document_id}")
+        print(f"Chunk Index: {chunks[0].chunk_index}")
+        print(f"Token Count: {chunks[0].token_count}")
+        print(f"Text snippet: {chunks[0].text[:120]}...")
+
