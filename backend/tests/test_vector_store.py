@@ -78,6 +78,16 @@ class TestVectorStoreService(unittest.TestCase):
             ) -> list[str]:
                 return [f"id_{c.chunk_id}" for c in chunks]
 
+            def search(
+                self,
+                vector: list[float],
+                top_k: int = 5,
+                filters: dict[str, Any] | None = None,
+                score_threshold: float | None = None,
+                collection_name: str | None = None,
+            ) -> list[Any]:
+                return []
+
             def close(self) -> None:
                 pass
 
@@ -90,6 +100,8 @@ class TestVectorStoreService(unittest.TestCase):
             service.store_chunks([self.sample_chunk_1], [[0.1]]),
             ["id_doc_runbook#chunk_0"],
         )
+        self.assertEqual(service.search([0.1, 0.2]), [])
+
 
     def test_qdrant_service_defaults(self) -> None:
         """Verify Qdrant service initializes with backend settings defaults."""
@@ -326,7 +338,108 @@ class TestVectorStoreService(unittest.TestCase):
         self.assertEqual(p2.payload["metadata"]["tags"], ["ops", "production"])
         self.assertEqual(len(p2.vector), 4)
 
+    def test_build_filter(self) -> None:
+        """Verify _build_filter properly constructs Qdrant filters."""
+        service = QdrantVectorStoreService(client=MagicMock())
+
+        self.assertIsNone(service._build_filter(None))
+        self.assertIsNone(service._build_filter({}))
+        self.assertIsNone(service._build_filter({"product": None}))
+
+        q_filter = service._build_filter({
+            "document_id": "doc_123",
+            "product": "sourcewise",
+            "metadata.department": "engineering",
+        })
+        self.assertIsNotNone(q_filter)
+        keys = [c.key for c in q_filter.must]
+        self.assertIn("document_id", keys)
+        self.assertIn("metadata.product", keys)
+        self.assertIn("metadata.department", keys)
+
+    def test_search_empty_vector_raises(self) -> None:
+        """Verify search raises ValueError when query vector is empty."""
+        service = QdrantVectorStoreService(client=MagicMock())
+        with self.assertRaises(ValueError) as ctx:
+            service.search(vector=[])
+        self.assertIn("cannot be empty", str(ctx.exception))
+
+    def test_search_nonexistent_collection_returns_empty(self) -> None:
+        """Verify search returns empty list if collection does not exist."""
+        mock_client = MagicMock()
+        mock_client.collection_exists.return_value = False
+        service = QdrantVectorStoreService(client=mock_client)
+
+        results = service.search(vector=[0.1, 0.2, 0.3, 0.4])
+        self.assertEqual(results, [])
+
+    def test_search_mocked(self) -> None:
+        """Verify search translates Qdrant ScoredPoint objects into VectorSearchResult."""
+        mock_client = MagicMock()
+        mock_client.collection_exists.return_value = True
+
+        mock_point = MagicMock()
+        mock_point.id = "mock-id-1"
+        mock_point.score = 0.92
+        mock_point.payload = {
+            "chunk_id": "doc_runbook#chunk_0",
+            "document_id": "doc_runbook",
+            "text": "First chunk content for RAG indexing.",
+            "chunk_index": 0,
+            "token_count": 8,
+            "metadata": {"title": "Incident Runbook"},
+        }
+        mock_client.query_points.return_value = MagicMock(points=[mock_point])
+
+        service = QdrantVectorStoreService(client=mock_client, collection_name="docs")
+        results = service.search(
+            vector=[0.1, 0.2, 0.3, 0.4],
+            top_k=3,
+            filters={"document_id": "doc_runbook"},
+            score_threshold=0.8,
+        )
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].score, 0.92)
+        self.assertEqual(results[0].chunk.chunk_id, "doc_runbook#chunk_0")
+        self.assertEqual(results[0].chunk.document_id, "doc_runbook")
+        self.assertEqual(results[0].chunk.text, "First chunk content for RAG indexing.")
+
+        mock_client.query_points.assert_called_once()
+        call_kwargs = mock_client.query_points.call_args[1]
+        self.assertEqual(call_kwargs["collection_name"], "docs")
+        self.assertEqual(call_kwargs["query"], [0.1, 0.2, 0.3, 0.4])
+        self.assertEqual(call_kwargs["limit"], 3)
+        self.assertEqual(call_kwargs["score_threshold"], 0.8)
+
+    def test_in_memory_search_and_filtering(self) -> None:
+        """Verify end-to-end storage and vector search using offline in-memory Qdrant."""
+        in_memory_client = QdrantClient(":memory:")
+        service = QdrantVectorStoreService(
+            client=in_memory_client,
+            collection_name="in_memory_search_docs",
+            vector_size=4,
+        )
+
+        chunks = [self.sample_chunk_1, self.sample_chunk_2]
+        service.store_chunks(chunks, self.sample_vectors)
+
+        # Search nearest to vector 1
+        results = service.search(vector=[0.1, 0.2, 0.3, 0.4], top_k=2)
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0].chunk.chunk_id, "doc_runbook#chunk_0")
+        self.assertGreater(results[0].score, 0.99)  # Identical direction
+
+        # Search with filter
+        filtered_results = service.search(
+            vector=[0.1, 0.2, 0.3, 0.4],
+            top_k=2,
+            filters={"chunk_id": "doc_runbook#chunk_1"},
+        )
+        self.assertEqual(len(filtered_results), 1)
+        self.assertEqual(filtered_results[0].chunk.chunk_id, "doc_runbook#chunk_1")
 
 
 if __name__ == "__main__":
     unittest.main()
+
