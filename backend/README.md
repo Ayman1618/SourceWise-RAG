@@ -55,8 +55,8 @@ backend/
 │       ├── chunking.py       # Markdown-aware ChunkingService (500-800 tok, 50-100 overlap)
 │       ├── ingestion.py      # BaseIngestionService contract & DocumentIngestionService
 │       ├── embedding.py      # BaseEmbeddingService & OpenAIEmbeddingService
-│       ├── vector_store.py   # BaseVectorStoreService & QdrantVectorStoreService
-│       ├── retrieval.py      # BaseRetrievalService abstract interface
+│       ├── vector_store.py   # BaseVectorStoreService, QdrantVectorStoreService, VectorSearchResult
+│       ├── retrieval.py      # BaseRetrievalService & QdrantRetrievalService
 │       └── generation.py     # BaseGenerationService abstract interface
 ├── tests/
 │   ├── __init__.py           # Test suite package
@@ -64,11 +64,11 @@ backend/
 │   ├── test_models.py        # Model validation and traceability tests
 │   ├── test_embedding.py     # Embedding service contracts & OpenAI mock tests
 │   ├── test_vector_store.py  # Vector store contracts & Qdrant mock tests
+│   ├── test_retrieval.py     # Semantic retrieval service & filtering tests
 │   └── test_services.py      # Service interface contracts and re-exports
 ├── requirements.txt          # Python dependencies
 ├── .env.example              # Example environment configuration
 └── README.md                 # Backend documentation
-
 ```
 
 ---
@@ -126,11 +126,14 @@ Point IDs in Qdrant are generated deterministically as UUIDv5 hashes of `chunk_i
 
 - **`BaseEmbeddingService` / `OpenAIEmbeddingService`** (`embed_text`, `embed_texts`, `query_embedding`):
   Generates dense vector representations using OpenAI or any OpenAI-compatible provider (e.g. Ollama, LiteLLM, Azure).
-- **`BaseVectorStoreService` / `QdrantVectorStoreService`** (`connect`, `collection_exists`, `create_collection_if_not_exists`, `store_chunks`, `close`):
-  Connects to Qdrant, provisions collections with configurable distance metrics, and stores chunk vectors with full provenance payloads.
-- **`BaseIngestionService`** (`ingest`, `chunk_document`): Contract for raw document parsing and chunking.
-- **`BaseRetrievalService`** (`retrieve`): Contract for semantic and hybrid evidence retrieval.
+- **`BaseVectorStoreService` / `QdrantVectorStoreService`** (`connect`, `collection_exists`, `create_collection_if_not_exists`, `store_chunks`, `search`, `close`):
+  Connects to Qdrant, provisions collections, performs similarity searches with metadata filtering, and stores chunk vectors with full provenance payloads.
+- **`BaseRetrievalService` / `QdrantRetrievalService`** (`retrieve`):
+  Coordinates query embedding generation, similarity search via `BaseVectorStoreService`, metadata filtering (e.g. `product`, `department`, `document_id`), and output reconstruction into ranked `RetrievedChunk` items.
+- **`BaseIngestionService` / `DocumentIngestionService`** (`ingest`, `chunk_document`, `ingest_and_chunk`):
+  Parses Markdown documents with YAML frontmatter and segments them into discrete, traceable chunks.
 - **`BaseGenerationService`** (`generate`): Contract for citation-grounded response generation.
+
 
 ---
 

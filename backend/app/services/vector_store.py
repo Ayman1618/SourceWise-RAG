@@ -4,11 +4,27 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict, Field
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, PointStruct, VectorParams
+from qdrant_client.models import Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams
 
 from app.core.config import settings
 from app.models.chunk import Chunk
+
+
+class VectorSearchResult(BaseModel):
+    """Container for vector similarity search results."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    chunk: Chunk = Field(
+        ...,
+        description="Reconstructed Chunk instance with full document provenance",
+    )
+    score: float = Field(
+        ...,
+        description="Similarity relevance score computed by vector search",
+    )
 
 
 class BaseVectorStoreService(ABC):
@@ -72,9 +88,33 @@ class BaseVectorStoreService(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    def search(
+        self,
+        vector: list[float],
+        top_k: int = 5,
+        filters: dict[str, Any] | None = None,
+        score_threshold: float | None = None,
+        collection_name: str | None = None,
+    ) -> list[VectorSearchResult]:
+        """Perform vector similarity search against the vector collection.
+
+        Args:
+            vector: Query embedding vector.
+            top_k: Maximum number of points to retrieve.
+            filters: Optional dictionary of filter conditions.
+            score_threshold: Optional minimum similarity score threshold.
+            collection_name: Target collection name (defaults to configured collection).
+
+        Returns:
+            list[VectorSearchResult]: Ordered list of search results.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     def close(self) -> None:
         """Close vector store client connection and release resources."""
         raise NotImplementedError
+
 
 
 class QdrantVectorStoreService(BaseVectorStoreService):
@@ -293,8 +333,117 @@ class QdrantVectorStoreService(BaseVectorStoreService):
 
         return point_ids
 
+    def _build_filter(self, filters: dict[str, Any] | None) -> Filter | None:
+        """Build Qdrant Filter object from key-value filter mapping.
+
+        Supports top-level chunk fields (document_id, chunk_id, chunk_index) as
+        well as document/source metadata fields (e.g. product, version, source_type,
+        department).
+
+        Args:
+            filters: Dictionary of field names and match values.
+
+        Returns:
+            Filter | None: Configured Qdrant Filter or None if no valid filters.
+        """
+        if not filters:
+            return None
+
+        conditions: list[FieldCondition] = []
+        for key, value in filters.items():
+            if value is None:
+                continue
+
+            # Route top-level chunk payload attributes or nested metadata attributes
+            if key in ("document_id", "chunk_id", "chunk_index"):
+                field_key = key
+            elif key.startswith("metadata."):
+                field_key = key
+            else:
+                field_key = f"metadata.{key}"
+
+            conditions.append(FieldCondition(key=field_key, match=MatchValue(value=value)))
+
+        if not conditions:
+            return None
+
+        return Filter(must=conditions)
+
+    def search(
+        self,
+        vector: list[float],
+        top_k: int = 5,
+        filters: dict[str, Any] | None = None,
+        score_threshold: float | None = None,
+        collection_name: str | None = None,
+    ) -> list[VectorSearchResult]:
+        """Search Qdrant collection using vector similarity.
+
+        Args:
+            vector: Query embedding vector.
+            top_k: Maximum number of points to retrieve (default: 5).
+            filters: Optional dictionary of filter conditions.
+            score_threshold: Optional minimum similarity score threshold.
+            collection_name: Target collection name (defaults to self.collection_name).
+
+        Returns:
+            list[VectorSearchResult]: Ordered search results preserving chunk provenance and score.
+
+        Raises:
+            ValueError: If vector is empty.
+        """
+        if not vector:
+            raise ValueError("Query vector cannot be empty")
+
+        name = collection_name or self.collection_name
+        if not self.collection_exists(name):
+            return []
+
+        query_filter = self._build_filter(filters)
+
+        # Support both query_points (newer qdrant-client) and search APIs
+        if hasattr(self.client, "query_points"):
+            response = self.client.query_points(
+                collection_name=name,
+                query=vector,
+                query_filter=query_filter,
+                limit=top_k,
+                score_threshold=score_threshold,
+                with_payload=True,
+            )
+            scored_points = response.points if hasattr(response, "points") else response
+        elif hasattr(self.client, "search"):
+            scored_points = self.client.search(
+                collection_name=name,
+                query_vector=vector,
+                query_filter=query_filter,
+                limit=top_k,
+                score_threshold=score_threshold,
+                with_payload=True,
+            )
+        else:
+            raise AttributeError("Qdrant client does not support query_points or search")
+
+        results: list[VectorSearchResult] = []
+        for point in scored_points:
+            payload = point.payload or {}
+
+            chunk = Chunk(
+                chunk_id=payload.get("chunk_id", str(point.id)),
+                document_id=payload.get("document_id", "unknown_document"),
+                text=payload.get("text", ""),
+                chunk_index=payload.get("chunk_index", 0),
+                token_count=payload.get("token_count"),
+                metadata=payload.get("metadata", {}),
+            )
+            score = float(point.score)
+            results.append(VectorSearchResult(chunk=chunk, score=score))
+
+        return results
+
     def close(self) -> None:
         """Close the Qdrant client connection."""
         if self._client is not None:
             self.client.close()
             self._client = None
+
