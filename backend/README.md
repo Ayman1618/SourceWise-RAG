@@ -57,9 +57,11 @@ backend/
 │       ├── embedding.py      # BaseEmbeddingService & OpenAIEmbeddingService
 │       ├── vector_store.py   # BaseVectorStoreService, QdrantVectorStoreService, VectorSearchResult
 │       ├── retrieval.py      # BaseRetrievalService & QdrantRetrievalService
+│       ├── indexing.py       # BaseIndexingService, DocumentIndexingService & run_indexing_cli
 │       └── generation.py     # BaseGenerationService & GroundedGenerationService
 ├── tests/
 │   ├── __init__.py           # Test suite package
+│   ├── test_indexing.py      # Document indexing, batch embedding & Qdrant upsert tests
 │   ├── test_ingestion_chunking.py # Ingestion, chunking, overlap & boundary tests
 │   ├── test_models.py        # Model validation and traceability tests
 │   ├── test_embedding.py     # Embedding service contracts & OpenAI mock tests
@@ -69,6 +71,8 @@ backend/
 │   └── test_services.py      # Service interface contracts and re-exports
 
 ├── requirements.txt          # Python dependencies
+├── run_indexing.py           # CLI runner for document embedding & Qdrant indexing pipeline
+├── run_ingestion.py          # CLI runner for document ingestion & chunking pipeline
 ├── .env.example              # Example environment configuration
 └── README.md                 # Backend documentation
 ```
@@ -132,8 +136,10 @@ Point IDs in Qdrant are generated deterministically as UUIDv5 hashes of `chunk_i
   Connects to Qdrant, provisions collections, performs similarity searches with metadata filtering, and stores chunk vectors with full provenance payloads.
 - **`BaseRetrievalService` / `QdrantRetrievalService`** (`retrieve`):
   Coordinates query embedding generation, similarity search via `BaseVectorStoreService`, metadata filtering (e.g. `product`, `department`, `document_id`), and output reconstruction into ranked `RetrievedChunk` items.
-- **`BaseIngestionService` / `DocumentIngestionService`** (`ingest`, `chunk_document`, `ingest_and_chunk`):
+-**`BaseIngestionService` / `DocumentIngestionService`** (`ingest`, `chunk_document`, `ingest_and_chunk`):
   Parses Markdown documents with YAML frontmatter and segments them into discrete, traceable chunks.
+- **`BaseIndexingService` / `DocumentIndexingService`** (`index_documents`, `index_chunks`, `run_indexing_cli`):
+  Coordinates end-to-end document and chunk embedding and Qdrant vector indexing with batching, collection lifecycle verification, and idempotent point generation.
 - **`BaseGenerationService` / `GroundedGenerationService`** (`generate`):
   Synthesizes factually grounded answers from retrieved evidence, enforces strict refusal on insufficient/unsupported information, and constructs verifiable `Citation` objects mapped directly to source chunks.
 
@@ -297,7 +303,115 @@ python run_ingestion.py path/to/markdown/docs
 
 > **Note**: This pipeline runs entirely in-memory and offline. No embeddings are calculated, no vector database calls (Qdrant) are performed, and no external LLM APIs are invoked.
 
+---
 
+## Document Embedding & Qdrant Indexing Pipeline
+
+The indexing pipeline takes normalized documents or pre-segmented chunks, produces text chunks through the chunking service, generates dense vector embeddings in configurable batches, ensures collection provisioning, and persists vector points in Qdrant with deterministic UUIDv5 identifiers.
+
+```
+Normalized Documents
+        │
+        ▼
+[DocumentIngestionService]
+        │   ├── Segments documents via ChunkingService
+        │   └── Preserves document_id, chunk_index, and parent metadata
+        ▼
+Extracted Chunks
+        │
+        ▼  (in batches, default: 64)
+[BaseEmbeddingService] (OpenAIEmbeddingService or compatible)
+        │   └── embed_texts(texts) -> Batch vector embeddings
+        ▼
+Dense Vectors
+        │
+        ▼
+[BaseVectorStoreService] (QdrantVectorStoreService)
+        │   ├── create_collection_if_not_exists(...)
+        │   ├── Deterministic UUIDv5 point IDs: chunk_id -> point_id
+        │   └── Idempotent point upsert with full provenance payload
+        ▼
+Qdrant Vector Database
+```
+
+### Architecture & Guarantees
+
+1. **Strict Abstraction Decoupling**:
+   `DocumentIndexingService` depends solely on abstract service interfaces:
+   - `BaseEmbeddingService` (for batch embedding generation)
+   - `BaseVectorStoreService` (for collection lifecycle and vector storage)
+   - `BaseIngestionService` or `ChunkingService` (for segmenting documents)
+   
+   The service never directly instantiates `QdrantClient` or provider-specific clients.
+
+2. **Batch Processing**:
+   - Chunks are grouped into batches (`batch_size` parameter, defaulting to `settings.embedding_batch_size` or 64).
+   - Generates embeddings using `embed_texts([chunk.text, ...])` rather than single-text requests, minimizing API roundtrips and latency.
+   - Vector points are stored in batches in Qdrant.
+
+3. **Deterministic & Idempotent Indexing**:
+   - Point IDs are derived as deterministic `UUIDv5` hashes of `chunk_id` (`{document_id}#chunk_{chunk_index}`).
+   - Re-running indexing over previously indexed documents updates vector points in-place without creating duplicate points.
+
+4. **Provenance & Metadata Preservation**:
+   Every point payload stored in Qdrant contains:
+   - `chunk_id`: Traceable chunk identifier
+   - `document_id`: Parent document identifier
+   - `chunk_index`: Sequence position
+   - `text`: Segment text
+   - `token_count`: Estimated or exact token count
+   - `metadata`: Parent document metadata (title, product, version, department, owner, access level, custom tags)
+
+5. **Error Handling & Parity Verification**:
+   - Validates vector count matches chunk count for each batch.
+   - Wraps downstream failures in `IndexingError` with actionable messages.
+   - Gracefully returns `[]` on empty document inputs without unnecessary API calls.
+
+### Usage Example
+
+```python
+import asyncio
+from pathlib import Path
+from app.services.ingestion import DocumentIngestionService
+from app.services.embedding import OpenAIEmbeddingService
+from app.services.vector_store import QdrantVectorStoreService
+from app.services.indexing import DocumentIndexingService
+
+async def main():
+    # Ingest normalized documents
+    ingestion_service = DocumentIngestionService()
+    docs = await ingestion_service.ingest(Path("data/sample-documents"))
+
+    # Initialize indexing pipeline with abstractions
+    indexing_service = DocumentIndexingService(
+        embedding_service=OpenAIEmbeddingService(),
+        vector_store_service=QdrantVectorStoreService(),
+        chunking_service=ingestion_service,
+        batch_size=32,
+    )
+
+    # Index documents into Qdrant
+    point_ids = await indexing_service.index_documents(docs)
+    print(f"Successfully indexed {len(point_ids)} chunks into Qdrant.")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### CLI Indexing Runner
+
+Run the indexing pipeline directly from the command line:
+
+```bash
+# Offline execution (in-memory Qdrant + stub embeddings, zero external APIs required)
+python run_indexing.py --in-memory
+
+# Live indexing of sample documents (requires running Qdrant and EMBEDDING_API_KEY in .env)
+python run_indexing.py
+
+# Custom directory and batch size
+python run_indexing.py path/to/markdown/docs --collection my_collection --batch-size 32
+```
 
 ---
 
@@ -427,13 +541,13 @@ FastAPI provides built-in, interactive OpenAPI documentation:
 
 ## Current Scope & Future Roadmap
 
-- **PR Scope:** Vector search foundation layer:
-  - Settings configuration for embedding providers and Qdrant vector store.
-  - `BaseEmbeddingService` and `OpenAIEmbeddingService` with text/batch/query embedding methods.
-  - `BaseVectorStoreService` and `QdrantVectorStoreService` with collection management and chunk vector storage preserving citation provenance.
-  - Mocked unit tests for embedding and vector store services.
+- **PR Scope:** Document embedding and Qdrant indexing pipeline:
+  - `BaseIndexingService` and `DocumentIndexingService` connecting ingestion/chunking to embedding and vector store.
+  - Batch embedding processing and collection provisioning via abstract contracts.
+  - Idempotent indexing preserving full chunk and document provenance metadata.
+  - Mocked unit tests and offline integration test (document -> chunks -> vectors -> Qdrant -> retrievable evidence).
+  - CLI runner `run_indexing.py` and `run_indexing_cli`.
 - **Planned in Future PRs:**
-  - Document ingestion & file parsers (`app/services/ingestion.py`)
-  - Retrieval and search endpoints with hybrid filtering (`app/services/retrieval.py`)
-  - Grounded answer generation and LLM response formatting (`app/services/generation.py`)
-  - Query API endpoints (`/api/v1/query`, `/api/v1/retrieval`, `/api/v1/documents`)
+  - Grounded answer generation and LLM response formatting (`app/services/generation.py`).
+  - Citation verification and prompt engineering.
+  - Query & generation API endpoints (`/api/v1/query`, `/api/v1/documents`).

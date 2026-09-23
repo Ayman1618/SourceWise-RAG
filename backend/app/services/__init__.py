@@ -3,6 +3,12 @@
 from app.services.chunking import ChunkingService
 from app.services.embedding import BaseEmbeddingService, OpenAIEmbeddingService
 from app.services.generation import BaseGenerationService, GroundedGenerationService
+from app.services.indexing import (
+    BaseIndexingService,
+    DocumentIndexingService,
+    IndexingError,
+    run_indexing_cli,
+)
 from app.services.ingestion import (
     BaseIngestionService,
     DocumentIngestionService,
@@ -19,19 +25,21 @@ from app.services.vector_store import (
 __all__ = [
     "BaseEmbeddingService",
     "BaseGenerationService",
+    "BaseIndexingService",
     "BaseIngestionService",
     "BaseRetrievalService",
     "BaseVectorStoreService",
     "ChunkingService",
+    "DocumentIndexingService",
     "DocumentIngestionService",
     "GroundedGenerationService",
+    "IndexingError",
     "MarkdownParseError",
     "MarkdownParser",
     "OpenAIEmbeddingService",
     "QdrantRetrievalService",
     "QdrantVectorStoreService",
     "VectorSearchResult",
+    "run_indexing_cli",
     "run_ingestion_cli",
 ]
-
-
