@@ -2,7 +2,7 @@
 
 from app.services.chunking import ChunkingService
 from app.services.embedding import BaseEmbeddingService, OpenAIEmbeddingService
-from app.services.generation import BaseGenerationService
+from app.services.generation import BaseGenerationService, GroundedGenerationService
 from app.services.ingestion import (
     BaseIngestionService,
     DocumentIngestionService,
@@ -24,6 +24,7 @@ __all__ = [
     "BaseVectorStoreService",
     "ChunkingService",
     "DocumentIngestionService",
+    "GroundedGenerationService",
     "MarkdownParseError",
     "MarkdownParser",
     "OpenAIEmbeddingService",
@@ -32,4 +33,5 @@ __all__ = [
     "VectorSearchResult",
     "run_ingestion_cli",
 ]
+
 
