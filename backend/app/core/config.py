@@ -30,7 +30,17 @@ class Settings(BaseSettings):
     qdrant_distance: str = "Cosine"
     qdrant_timeout: float = 10.0
 
+    # LLM / Grounded Generation Configuration
+    llm_provider: str = "openai"
+    llm_api_key: str | None = None
+    llm_model: str = "gpt-4o-mini"
+    llm_base_url: str | None = None
+    llm_temperature: float = 0.0
+    llm_max_tokens: int = 1024
+    min_evidence_score: float = 0.0
+
     model_config = SettingsConfigDict(
+
 
         env_file=(".env", "../.env"),
         env_file_encoding="utf-8",

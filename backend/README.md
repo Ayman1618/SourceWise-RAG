@@ -58,7 +58,7 @@ backend/
 │       ├── vector_store.py   # BaseVectorStoreService, QdrantVectorStoreService, VectorSearchResult
 │       ├── retrieval.py      # BaseRetrievalService & QdrantRetrievalService
 │       ├── indexing.py       # BaseIndexingService, DocumentIndexingService & run_indexing_cli
-│       └── generation.py     # BaseGenerationService abstract interface
+│       └── generation.py     # BaseGenerationService & GroundedGenerationService
 ├── tests/
 │   ├── __init__.py           # Test suite package
 │   ├── test_indexing.py      # Document indexing, batch embedding & Qdrant upsert tests
@@ -67,7 +67,9 @@ backend/
 │   ├── test_embedding.py     # Embedding service contracts & OpenAI mock tests
 │   ├── test_vector_store.py  # Vector store contracts & Qdrant mock tests
 │   ├── test_retrieval.py     # Semantic retrieval service & filtering tests
+│   ├── test_generation.py    # Grounded generation, citation validation & refusal tests
 │   └── test_services.py      # Service interface contracts and re-exports
+
 ├── requirements.txt          # Python dependencies
 ├── run_indexing.py           # CLI runner for document embedding & Qdrant indexing pipeline
 ├── run_ingestion.py          # CLI runner for document ingestion & chunking pipeline
@@ -138,8 +140,46 @@ Point IDs in Qdrant are generated deterministically as UUIDv5 hashes of `chunk_i
   Parses Markdown documents with YAML frontmatter and segments them into discrete, traceable chunks.
 - **`BaseIndexingService` / `DocumentIndexingService`** (`index_documents`, `index_chunks`, `run_indexing_cli`):
   Coordinates end-to-end document and chunk embedding and Qdrant vector indexing with batching, collection lifecycle verification, and idempotent point generation.
-- **`BaseGenerationService`** (`generate`): Contract for citation-grounded response generation.
+- **`BaseGenerationService` / `GroundedGenerationService`** (`generate`):
+  Synthesizes factually grounded answers from retrieved evidence, enforces strict refusal on insufficient/unsupported information, and constructs verifiable `Citation` objects mapped directly to source chunks.
 
+---
+
+## Grounded Answer Generation & Citations
+
+SourceWise RAG implements an **evidence-first generation pipeline** designed to prevent hallucinations and provide complete auditability.
+
+```
+User Question + Retrieved Chunks
+               │
+               ▼
+   [GroundedGenerationService]
+               │
+               ├── 1. Zero/Low Evidence Check:
+               │      If no evidence or filtered out → Refusal ("I couldn't find sufficient...")
+               │
+               ├── 2. Strict Grounding System Prompt:
+               │      - Answer using ONLY provided evidence
+               │      - No outside knowledge or speculation
+               │      - Structured JSON output with cited chunk_id
+               │
+               ├── 3. LLM Generation (OpenAI-compatible)
+               │
+               └── 4. Citation Verification & Construction:
+                      - Match cited chunk_id against retrieved chunks
+                      - Reject hallucinated/unmatched chunk IDs
+                      - If model claims support but citations are invalid → REFUSED
+                      - Build traceable Citations: document_id, chunk_id, passage, source_path, score
+               │
+               ▼
+   Grounded Answer Object (query, answer, citations, evidence_status)
+```
+
+### Evidence Sufficiency & Refusal Policy
+
+- **`EvidenceStatus.INSUFFICIENT`**: There is not enough evidence to answer the query (e.g., zero chunks retrieved, evidence pre-filtered, or model analysis indicates insufficient information in the knowledge base). The standard refusal notice is returned.
+- **`EvidenceStatus.REFUSED`**: Evidence was supplied, but the generated answer or citations could not be safely validated (e.g., all cited IDs were hallucinated or failed validation).
+- **`EvidenceStatus.SUFFICIENT`**: The answer is completely backed by verified citations pointing to real retrieved chunks.
 
 ---
 
@@ -163,6 +203,14 @@ All settings are configured via environment variables or a `.env` file using Pyd
 | `QDRANT_VECTOR_SIZE` | `1536` | Vector dimension size matching embedding model |
 | `QDRANT_DISTANCE` | `Cosine` | Distance metric for similarity (`Cosine`, `Dot`, `Euclid`) |
 | `QDRANT_TIMEOUT` | `10.0` | Connection timeout in seconds |
+| `LLM_PROVIDER` | `openai` | LLM generation provider identifier |
+| `LLM_API_KEY` | `None` | API key for OpenAI or compatible LLM provider |
+| `LLM_MODEL` | `gpt-4o-mini` | Generation model name (e.g. OpenAI, Ollama, LiteLLM) |
+| `LLM_BASE_URL` | `None` | Custom base URL for OpenAI-compatible LLM endpoints |
+| `LLM_TEMPERATURE` | `0.0` | Generation sampling temperature (0.0 for deterministic grounding) |
+| `LLM_MAX_TOKENS` | `1024` | Maximum output tokens for answer generation |
+| `MIN_EVIDENCE_SCORE` | `0.0` | Optional retrieval score threshold for pre-filtering evidence |
+
 
 ---
 
