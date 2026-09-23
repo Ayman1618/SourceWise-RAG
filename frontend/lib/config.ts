@@ -1,23 +1,25 @@
 /**
- * Frontend Configuration for Backend RAG Service Integration.
+ * Frontend Configuration for SourceWise RAG Integration.
  */
 
 export const API_CONFIG = {
   /**
-   * Base URL for the backend API service.
-   * Can be configured via NEXT_PUBLIC_API_BASE_URL environment variable.
+   * Base URL for the Backend FastAPI Service.
+   * Configured via NEXT_PUBLIC_API_URL or NEXT_PUBLIC_API_BASE_URL.
    * Default fallback: http://localhost:8000
    */
-  baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000",
+  baseUrl:
+    process.env.NEXT_PUBLIC_API_URL ||
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    "http://localhost:8000",
 
   /**
-   * Primary RAG Query Endpoint Path matching backend FastAPI router contract.
-   * Target endpoint: POST /api/v1/query
+   * RAG Query Endpoint matching FastAPI route POST /api/v1/query
    */
   queryEndpoint: "/api/v1/query",
 
   /**
-   * Request timeout in milliseconds (15 seconds).
+   * Timeout in milliseconds for backend RAG queries (15s)
    */
   timeoutMs: 15000,
 };
