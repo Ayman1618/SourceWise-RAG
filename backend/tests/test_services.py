@@ -11,6 +11,7 @@ from app.models.generation import Answer
 from app.models.retrieval import RetrievalQuery, RetrievedChunk
 from app.services.embedding import BaseEmbeddingService
 from app.services.generation import BaseGenerationService
+from app.services.indexing import BaseIndexingService
 from app.services.ingestion import BaseIngestionService
 from app.services.retrieval import BaseRetrievalService
 from app.services.vector_store import BaseVectorStoreService
@@ -35,6 +36,9 @@ class TestServiceInterfaces(unittest.TestCase):
 
         with self.assertRaises(TypeError):
             BaseVectorStoreService()  # type: ignore[abstract]
+
+        with self.assertRaises(TypeError):
+            BaseIndexingService()  # type: ignore[abstract]
 
 
     def test_concrete_mock_implementations(self) -> None:
@@ -104,14 +108,27 @@ class TestServiceInterfaces(unittest.TestCase):
                     evidence=evidence,
                 )
 
+        class MockIndexingService(BaseIndexingService):
+            async def index_documents(
+                self, documents: list[Document] | Document, **kwargs: Any
+            ) -> list[str]:
+                return ["point_mock_1"]
+
+            async def index_chunks(
+                self, chunks: list[Chunk], **kwargs: Any
+            ) -> list[str]:
+                return ["point_mock_1"]
+
         # Instantiation check
         ingestion = MockIngestionService()
         retrieval = MockRetrievalService()
         generation = MockGenerationService()
+        indexing = MockIndexingService()
 
         self.assertIsInstance(ingestion, BaseIngestionService)
         self.assertIsInstance(retrieval, BaseRetrievalService)
         self.assertIsInstance(generation, BaseGenerationService)
+        self.assertIsInstance(indexing, BaseIndexingService)
 
 
 if __name__ == "__main__":
