@@ -1,10 +1,11 @@
 /**
  * Frontend RAG Types matching the Backend Pydantic Contract
- * 
+ *
  * Source of Truth:
+ * - backend/app/models/query.py (QueryRequest)
  * - backend/app/models/generation.py (Answer, EvidenceStatus)
  * - backend/app/models/citation.py (Citation)
- * - backend/app/models/retrieval.py (RetrievedChunk, RetrievalQuery)
+ * - backend/app/models/retrieval.py (RetrievedChunk)
  */
 
 export type EvidenceStatus = "sufficient" | "insufficient" | "refused" | "unverified";
@@ -12,7 +13,7 @@ export type EvidenceStatus = "sufficient" | "insufficient" | "refused" | "unveri
 export interface QueryRequest {
   query: string;
   top_k?: number;
-  filters?: Record<string, unknown>;
+  filters?: Record<string, unknown> | null;
 }
 
 export interface Citation {
@@ -30,6 +31,8 @@ export interface ChunkMetadata {
   title?: string;
   source_type?: string;
   version?: string;
+  source_path?: string;
+  filepath?: string;
   [key: string]: unknown;
 }
 
@@ -58,4 +61,4 @@ export interface AnswerResponse {
   metadata?: Record<string, unknown>;
 }
 
-export type AskUIState = "idle" | "submitting" | "success" | "insufficient" | "error";
+export type AskUIState = "idle" | "submitting" | "success" | "insufficient" | "refused" | "error";

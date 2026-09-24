@@ -8,6 +8,7 @@ import { AnswerPanel } from "@/components/ask/AnswerPanel";
 import { EvidencePanel } from "@/components/ask/EvidencePanel";
 import {
   InsufficientEvidenceNotice,
+  RefusedNotice,
   ErrorNotice,
   SupportAgentLoadingState,
 } from "@/components/ask/AskStates";
@@ -35,10 +36,11 @@ export default function AskPage() {
 
     try {
       const result = await queryRAG(question);
-
       setResponse(result);
 
-      if (!result.has_sufficient_evidence || result.evidence_status === "insufficient" || result.evidence_status === "refused") {
+      if (result.evidence_status === "refused") {
+        setUiState("refused");
+      } else if (!result.has_sufficient_evidence || result.evidence_status === "insufficient") {
         setUiState("insufficient");
       } else {
         setUiState("success");
@@ -52,7 +54,7 @@ export default function AskPage() {
       } else {
         setErrorDetails({
           type: "backend_error",
-          message: err?.message || "An unexpected error occurred while processing your question.",
+          message: err?.message || "An error occurred while processing your question.",
         });
       }
       setUiState("error");
@@ -107,13 +109,13 @@ export default function AskPage() {
               className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded bg-white text-slate-700 hover:bg-slate-50 border border-slate-300 text-xs font-medium transition-colors shadow-xs"
             >
               <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
-              <span>New Investigation</span>
+              <span>New Query</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* Question Input Component */}
+      {/* Question Input Component with Suggested Demo Prompts */}
       <QuestionInput
         question={question}
         setQuestion={setQuestion}
@@ -132,6 +134,9 @@ export default function AskPage() {
           onRetry={() => handleAsk(new Event("submit") as any)}
         />
       )}
+
+      {/* State: Refused State */}
+      {uiState === "refused" && <RefusedNotice onReset={handleReset} />}
 
       {/* State: Insufficient Evidence State */}
       {uiState === "insufficient" && response && (
@@ -186,7 +191,7 @@ export default function AskPage() {
             <span className="font-semibold text-slate-800">
               Live RAG Query API Connected:
             </span>{" "}
-            Submitting a question executes `POST /api/v1/query` against `{API_CONFIG.baseUrl}`. The answer, citations, and evidence are populated directly from the backend response contract.
+            Submitting a question executes <code className="font-mono text-slate-800">POST /api/v1/query</code> against <code className="font-mono text-slate-800">{API_CONFIG.baseUrl}</code>. Click any suggested prompt above to test immediately.
           </div>
         </div>
       )}

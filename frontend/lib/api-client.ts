@@ -4,7 +4,7 @@
  * Target Backend Endpoint Contract:
  * - Method: POST
  * - Endpoint: ${API_CONFIG.baseUrl}/api/v1/query
- * - Request Payload: { query: string }
+ * - Request Payload: { query: string, top_k?: number, filters?: Record<string, unknown> }
  * - Response Contract: AnswerResponse (Answer model in backend/app/models/generation.py)
  */
 
@@ -12,12 +12,12 @@ import { API_CONFIG } from "./config";
 import { AnswerResponse, QueryRequest } from "./types/rag";
 
 export class RAGApiError extends Error {
-  public type: "network_error" | "backend_error" | "timeout_error";
+  public type: "network_error" | "backend_error" | "timeout_error" | "validation_error";
   public statusCode?: number;
 
   constructor(
     message: string,
-    type: "network_error" | "backend_error" | "timeout_error",
+    type: "network_error" | "backend_error" | "timeout_error" | "validation_error",
     statusCode?: number
   ) {
     super(message);
@@ -30,19 +30,33 @@ export class RAGApiError extends Error {
 export interface QueryOptions {
   topK?: number;
   filters?: Record<string, unknown>;
-  mockMode?: boolean;
-  scenario?: "normal" | "insufficient" | "error";
+  testMode?: boolean;
+  scenario?: "normal" | "insufficient" | "refused" | "error";
 }
 
 /**
- * Isolated dev adapter used ONLY when mockMode is explicitly enabled for unit testing.
+ * Isolated dev test helper used ONLY when testMode option is explicitly enabled during test execution.
  */
-function getDevMockResponse(
+function getTestMockResponse(
   query: string,
-  scenario: "normal" | "insufficient" | "error" = "normal"
+  scenario: "normal" | "insufficient" | "refused" | "error" = "normal"
 ): AnswerResponse {
   if (scenario === "error") {
     throw new RAGApiError("Simulated backend server error for testing", "backend_error", 500);
+  }
+
+  if (scenario === "refused") {
+    return {
+      query,
+      answer:
+        "I couldn't find sufficient supporting information in the available knowledge base to answer this reliably.",
+      citations: [],
+      evidence: [],
+      confidence_score: 0.0,
+      evidence_status: "refused",
+      has_sufficient_evidence: false,
+      metadata: { source: "test_mode" },
+    };
   }
 
   if (scenario === "insufficient") {
@@ -55,7 +69,7 @@ function getDevMockResponse(
       confidence_score: 0.0,
       evidence_status: "insufficient",
       has_sufficient_evidence: false,
-      metadata: { source: "mock_test_mode" },
+      metadata: { source: "test_mode" },
     };
   }
 
@@ -120,9 +134,7 @@ function getDevMockResponse(
     confidence_score: 0.94,
     evidence_status: "sufficient",
     has_sufficient_evidence: true,
-    metadata: {
-      source: "mock_test_mode",
-    },
+    metadata: { source: "test_mode" },
   };
 }
 
@@ -133,22 +145,25 @@ export async function queryRAG(
   queryText: string,
   options: QueryOptions = {}
 ): Promise<AnswerResponse> {
-  const cleanQuery = queryText.trim();
-  if (!cleanQuery) {
-    throw new Error("Query cannot be empty or whitespace only");
+  const trimmed = queryText.trim();
+  if (!trimmed) {
+    throw new RAGApiError(
+      "Query cannot be empty or whitespace only",
+      "validation_error"
+    );
   }
 
-  // Explicit test mock mode override
-  if (options.mockMode) {
-    await new Promise((res) => setTimeout(res, 400));
-    return getDevMockResponse(cleanQuery, options.scenario);
+  // Explicit testMode override for unit test suites
+  if (options.testMode) {
+    await new Promise((res) => setTimeout(res, 200));
+    return getTestMockResponse(trimmed, options.scenario);
   }
 
   const endpointUrl = `${API_CONFIG.baseUrl}${API_CONFIG.queryEndpoint}`;
   const payload: QueryRequest = {
-    query: cleanQuery,
+    query: trimmed,
     top_k: options.topK || 5,
-    filters: options.filters || {},
+    filters: options.filters || null,
   };
 
   const controller = new AbortController();
@@ -199,7 +214,7 @@ export async function queryRAG(
       );
     }
 
-    // Connection refused / offline server / CORS error
+    // Network / connection refused / offline server error
     throw new RAGApiError(
       `Network Error: Unable to connect to backend RAG API at ${endpointUrl}. Please ensure the backend server is running.`,
       "network_error"
