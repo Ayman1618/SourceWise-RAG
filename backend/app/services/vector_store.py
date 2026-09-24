@@ -30,6 +30,22 @@ class VectorSearchResult(BaseModel):
 class BaseVectorStoreService(ABC):
     """Abstract contract for vector database storage and collection management."""
 
+    REQUIRED_METADATA_FIELDS: tuple[str, ...] = (
+        "document_id",
+        "chunk_id",
+        "chunk_index",
+        "title",
+        "source_type",
+        "product",
+        "version",
+        "department",
+        "owner",
+        "last_updated",
+        "access_level",
+        "language",
+        "source_path",
+    )
+
     @abstractmethod
     def connect(self) -> Any:
         """Establish or verify connection to the vector store."""

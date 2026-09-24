@@ -84,6 +84,7 @@ class ChunkingService:
         )
 
         inherited_metadata: dict[str, Any] = {
+            "document_id": document.document_id,
             "title": document.title,
             "source_path": document.source_path,
             "source_type": document.source_type,
@@ -108,7 +109,12 @@ class ChunkingService:
                 text=chunk_text,
                 chunk_index=index,
                 token_count=token_count,
-                metadata={**inherited_metadata, "chunk_index": index},
+                metadata={
+                    **inherited_metadata,
+                    "document_id": document.document_id,
+                    "chunk_id": chunk_id,
+                    "chunk_index": index,
+                },
             )
             chunks.append(chunk)
 

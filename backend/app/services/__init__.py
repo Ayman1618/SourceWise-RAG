@@ -3,6 +3,7 @@
 from app.services.chunking import ChunkingService
 from app.services.embedding import BaseEmbeddingService, OpenAIEmbeddingService
 from app.services.generation import BaseGenerationService, GroundedGenerationService
+from app.models.indexing import IndexingFailure, IndexingResult
 from app.services.indexing import (
     BaseIndexingService,
     DocumentIndexingService,
@@ -34,6 +35,8 @@ __all__ = [
     "DocumentIngestionService",
     "GroundedGenerationService",
     "IndexingError",
+    "IndexingFailure",
+    "IndexingResult",
     "MarkdownParseError",
     "MarkdownParser",
     "OpenAIEmbeddingService",

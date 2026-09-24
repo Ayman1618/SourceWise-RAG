@@ -10,6 +10,7 @@ from typing import Any
 from app.core.config import settings
 from app.models.chunk import Chunk
 from app.models.document import Document
+from app.models.indexing import IndexingFailure, IndexingResult
 from app.services.chunking import ChunkingService
 from app.services.embedding import BaseEmbeddingService, OpenAIEmbeddingService
 from app.services.ingestion import BaseIngestionService, DocumentIngestionService
@@ -18,6 +19,10 @@ from app.services.vector_store import BaseVectorStoreService, QdrantVectorStoreS
 
 class IndexingError(Exception):
     """Raised when document or chunk indexing encounters an unrecoverable failure."""
+
+    def __init__(self, message: str, result: IndexingResult | None = None) -> None:
+        super().__init__(message)
+        self.result = result
 
 
 class BaseIndexingService(ABC):
@@ -28,7 +33,7 @@ class BaseIndexingService(ABC):
         self,
         documents: list[Document] | Document,
         **kwargs: Any,
-    ) -> list[str]:
+    ) -> IndexingResult:
         """Index one or more normalized documents into the vector store.
 
         Segments documents into traceable chunks, generates dense embeddings in
@@ -40,7 +45,7 @@ class BaseIndexingService(ABC):
             **kwargs: Additional indexing configurations (e.g. collection_name, batch_size).
 
         Returns:
-            list[str]: Stored point IDs.
+            IndexingResult: Structured indexing result with metrics, point IDs, and errors.
         """
         raise NotImplementedError
 
@@ -73,7 +78,24 @@ class DocumentIndexingService(BaseIndexingService):
     - Batch embedding to minimize API latency and payload overhead.
     - Idempotent point indexing via deterministic UUIDs preserving provenance.
     - Full metadata preservation across document, chunk, and vector layers.
+    - Structured result reporting with document, chunk, point, and error metrics.
     """
+
+    REQUIRED_METADATA_FIELDS: tuple[str, ...] = (
+        "document_id",
+        "chunk_id",
+        "chunk_index",
+        "title",
+        "source_type",
+        "product",
+        "version",
+        "department",
+        "owner",
+        "last_updated",
+        "access_level",
+        "language",
+        "source_path",
+    )
 
     def __init__(
         self,
@@ -95,6 +117,47 @@ class DocumentIndexingService(BaseIndexingService):
         self.chunking_service = chunking_service or DocumentIngestionService()
         self.batch_size = batch_size
 
+    @classmethod
+    def preserve_chunk_metadata(
+        cls,
+        chunk: Chunk,
+        document: Document | None = None,
+    ) -> Chunk:
+        """Ensure all 13 required metadata fields are preserved on the chunk.
+
+        Preserves:
+            document_id, chunk_id, chunk_index, title, source_type, product,
+            version, department, owner, last_updated, access_level, language, source_path.
+        """
+        meta = dict(chunk.metadata) if chunk.metadata else {}
+        meta.setdefault("document_id", chunk.document_id)
+        meta.setdefault("chunk_id", chunk.chunk_id)
+        meta.setdefault("chunk_index", chunk.chunk_index)
+
+        if document is not None:
+            doc_fields = {
+                "title": document.title,
+                "source_path": document.source_path,
+                "source_type": document.source_type,
+                "product": document.product,
+                "version": document.version,
+                "department": document.department,
+                "owner": document.owner,
+                "last_updated": str(document.last_updated) if document.last_updated is not None else None,
+                "access_level": document.access_level,
+                "language": document.language,
+            }
+            for k, v in doc_fields.items():
+                if k not in meta or meta[k] is None:
+                    meta[k] = v
+
+        for req_field in cls.REQUIRED_METADATA_FIELDS:
+            if req_field not in meta:
+                meta[req_field] = getattr(chunk, req_field, None)
+
+        chunk.metadata = meta
+        return chunk
+
     async def _chunk_document(self, document: Document, **kwargs: Any) -> list[Chunk]:
         """Chunk a document using either sync or async chunking services."""
         chunk_func = getattr(self.chunking_service, "chunk_document", None)
@@ -113,47 +176,121 @@ class DocumentIndexingService(BaseIndexingService):
         documents: list[Document] | Document,
         collection_name: str | None = None,
         batch_size: int | None = None,
+        raise_on_error: bool = False,
         **kwargs: Any,
-    ) -> list[str]:
+    ) -> IndexingResult:
         """Index one or more normalized documents into the vector store.
 
         Workflow:
         1. Receive normalized Document instances.
         2. Segment documents into traceable Chunks via the chunking service.
-        3. Delegate chunks to index_chunks for batch embedding and vector upsert.
+        3. Ensure complete metadata preservation across all required provenance fields.
+        4. Delegate chunks to index_chunks for batch embedding and vector upsert.
+        5. Return a structured IndexingResult with counts, point IDs, and failure tracking.
 
         Args:
             documents: Normalized Document instance or list of Document instances.
             collection_name: Target vector collection name.
             batch_size: Batch size override for embedding and upsert.
+            raise_on_error: If True, raises IndexingError on first failure instead of recording it in result.
             **kwargs: Additional parameters forwarded to chunker or vector store.
 
         Returns:
-            list[str]: Stored point IDs.
+            IndexingResult: Structured result containing documents_processed, chunks_created,
+                            chunks_indexed, point_ids, errors, and failures.
         """
         if not documents:
-            return []
+            return IndexingResult(
+                documents_processed=0,
+                chunks_created=0,
+                chunks_indexed=0,
+                point_ids=[],
+                errors=[],
+                failures=[],
+            )
 
         doc_list = [documents] if isinstance(documents, Document) else list(documents)
         if not doc_list:
-            return []
+            return IndexingResult(
+                documents_processed=0,
+                chunks_created=0,
+                chunks_indexed=0,
+                point_ids=[],
+                errors=[],
+                failures=[],
+            )
 
-        all_chunks: list[Chunk] = []
+        # Validate types upfront
         for doc in doc_list:
             if not isinstance(doc, Document):
                 raise TypeError(f"Expected Document instance, got {type(doc).__name__}")
-            chunks = await self._chunk_document(doc, **kwargs)
-            if chunks:
-                all_chunks.extend(chunks)
 
+        all_chunks: list[Chunk] = []
+        errors: list[str] = []
+        failures: list[IndexingFailure] = []
+        documents_processed = 0
+
+        for doc in doc_list:
+            try:
+                chunks = await self._chunk_document(doc, **kwargs)
+                if chunks:
+                    for c in chunks:
+                        self.preserve_chunk_metadata(c, document=doc)
+                    all_chunks.extend(chunks)
+                documents_processed += 1
+            except Exception as exc:
+                err_msg = f"Failed to chunk document '{doc.document_id}': {exc}"
+                failure = IndexingFailure(
+                    document_id=doc.document_id,
+                    stage="chunking",
+                    error=err_msg,
+                )
+                errors.append(err_msg)
+                failures.append(failure)
+                if raise_on_error:
+                    raise IndexingError(err_msg) from exc
+
+        chunks_created = len(all_chunks)
         if not all_chunks:
-            return []
+            return IndexingResult(
+                documents_processed=documents_processed,
+                chunks_created=0,
+                chunks_indexed=0,
+                point_ids=[],
+                errors=errors,
+                failures=failures,
+            )
 
-        return await self.index_chunks(
-            chunks=all_chunks,
-            collection_name=collection_name,
-            batch_size=batch_size,
-            **kwargs,
+        point_ids: list[str] = []
+        chunks_indexed = 0
+        try:
+            point_ids = await self.index_chunks(
+                chunks=all_chunks,
+                collection_name=collection_name,
+                batch_size=batch_size,
+                **kwargs,
+            )
+            chunks_indexed = len(point_ids)
+        except Exception as exc:
+            err_msg = f"Indexing failed during embedding or vector storage: {exc}"
+            failure = IndexingFailure(
+                stage="storage",
+                error=err_msg,
+            )
+            errors.append(err_msg)
+            failures.append(failure)
+            if raise_on_error:
+                if isinstance(exc, (ValueError, IndexingError)):
+                    raise
+                raise IndexingError(err_msg) from exc
+
+        return IndexingResult(
+            documents_processed=documents_processed,
+            chunks_created=chunks_created,
+            chunks_indexed=chunks_indexed,
+            point_ids=point_ids,
+            errors=errors,
+            failures=failures,
         )
 
     async def index_chunks(
@@ -167,10 +304,11 @@ class DocumentIndexingService(BaseIndexingService):
 
         Workflow:
         1. Validate chunk list and batch configuration.
-        2. For each batch, generate dense vector embeddings via BaseEmbeddingService.embed_texts.
-        3. Validate embedding count parity with chunk count.
-        4. Ensure vector collection exists.
-        5. Persist vectors and metadata in vector store via BaseVectorStoreService.store_chunks.
+        2. Ensure metadata preservation across all chunks.
+        3. For each batch, generate dense vector embeddings via BaseEmbeddingService.embed_texts.
+        4. Validate embedding count parity with chunk count.
+        5. Ensure vector collection exists.
+        6. Persist vectors and metadata in vector store via BaseVectorStoreService.store_chunks.
 
         Args:
             chunks: List of Chunk instances to embed and index.
@@ -179,7 +317,7 @@ class DocumentIndexingService(BaseIndexingService):
             **kwargs: Additional parameters forwarded to embedding or vector store.
 
         Returns:
-            list[str]: List of stored point IDs.
+            list[str]: List of stored point IDs (deterministic UUIDs).
 
         Raises:
             ValueError: If batch_size <= 0 or if embedding count does not match chunk count.
@@ -205,6 +343,9 @@ class DocumentIndexingService(BaseIndexingService):
         # Process chunks in batches
         for i in range(0, len(chunks), eff_batch_size):
             batch_chunks = chunks[i : i + eff_batch_size]
+            for c in batch_chunks:
+                self.preserve_chunk_metadata(c)
+
             texts = [c.text for c in batch_chunks]
 
             # 1. Generate embeddings in batch
@@ -322,11 +463,12 @@ def run_indexing_cli(
         for doc in documents:
             chunks = await ingestion_service.chunk_document(doc)
             all_chunks.extend(chunks)
-        point_ids = await indexing_service.index_chunks(
-            chunks=all_chunks,
+        result = await indexing_service.index_documents(
+            documents=documents,
             collection_name=collection_name,
             batch_size=batch_size,
+            raise_on_error=True,
         )
-        return documents, all_chunks, point_ids
+        return documents, all_chunks, result.point_ids
 
     return asyncio.run(_execute())

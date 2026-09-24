@@ -5,6 +5,7 @@ from app.models.citation import Citation
 from app.models.document import Document
 from app.models.generation import Answer, EvidenceStatus
 from app.models.health import HealthResponse
+from app.models.indexing import IndexingFailure, IndexingResult
 from app.models.retrieval import RetrievalQuery, RetrievalResult, RetrievedChunk
 
 __all__ = [
@@ -14,6 +15,8 @@ __all__ = [
     "Document",
     "EvidenceStatus",
     "HealthResponse",
+    "IndexingFailure",
+    "IndexingResult",
     "RetrievalQuery",
     "RetrievalResult",
     "RetrievedChunk",

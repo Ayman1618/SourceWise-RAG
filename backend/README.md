@@ -391,8 +391,8 @@ async def main():
     )
 
     # Index documents into Qdrant
-    point_ids = await indexing_service.index_documents(docs)
-    print(f"Successfully indexed {len(point_ids)} chunks into Qdrant.")
+    result = await indexing_service.index_documents(docs)
+    print(f"Indexed {result.chunks_indexed} chunks across {result.documents_processed} documents into Qdrant.")
 
 if __name__ == "__main__":
     asyncio.run(main())
