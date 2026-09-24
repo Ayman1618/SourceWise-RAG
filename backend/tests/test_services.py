@@ -8,6 +8,7 @@ from app.models.chunk import Chunk
 from app.models.citation import Citation
 from app.models.document import Document
 from app.models.generation import Answer
+from app.models.indexing import IndexingResult
 from app.models.retrieval import RetrievalQuery, RetrievedChunk
 from app.services.embedding import BaseEmbeddingService
 from app.services.generation import BaseGenerationService
@@ -111,8 +112,13 @@ class TestServiceInterfaces(unittest.TestCase):
         class MockIndexingService(BaseIndexingService):
             async def index_documents(
                 self, documents: list[Document] | Document, **kwargs: Any
-            ) -> list[str]:
-                return ["point_mock_1"]
+            ) -> IndexingResult:
+                return IndexingResult(
+                    documents_processed=1,
+                    chunks_created=1,
+                    chunks_indexed=1,
+                    point_ids=["point_mock_1"],
+                )
 
             async def index_chunks(
                 self, chunks: list[Chunk], **kwargs: Any

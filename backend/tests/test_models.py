@@ -10,6 +10,7 @@ from app.models.citation import Citation
 from app.models.document import Document
 from app.models.generation import Answer, EvidenceStatus
 from app.models.health import HealthResponse
+from app.models.indexing import IndexingFailure, IndexingResult
 from app.models.retrieval import RetrievalQuery, RetrievalResult, RetrievedChunk
 
 
@@ -322,13 +323,52 @@ class TestAnswerModel(unittest.TestCase):
             Answer(query="   ", answer="Some answer")
 
 
-class TestHealthResponse(unittest.TestCase):
-    """Tests for existing HealthResponse model."""
+class TestIndexingModels(unittest.TestCase):
+    """Tests for IndexingResult and IndexingFailure models."""
 
-    def test_health_response_default(self) -> None:
-        """Verify HealthResponse retains status='ok' default."""
-        resp = HealthResponse()
-        self.assertEqual(resp.status, "ok")
+    def test_indexing_result_defaults(self) -> None:
+        """Verify default initialization of IndexingResult."""
+        result = IndexingResult()
+        self.assertEqual(result.documents_processed, 0)
+        self.assertEqual(result.chunks_created, 0)
+        self.assertEqual(result.chunks_indexed, 0)
+        self.assertEqual(result.point_ids, [])
+        self.assertEqual(result.errors, [])
+        self.assertEqual(result.failures, [])
+        self.assertTrue(result.is_success)
+        self.assertFalse(result.has_failures)
+
+    def test_indexing_result_populated(self) -> None:
+        """Verify IndexingResult with counts, point IDs, and failures."""
+        failure = IndexingFailure(
+            document_id="doc_bad",
+            stage="chunking",
+            error="Failed to chunk document: parsing error",
+        )
+        result = IndexingResult(
+            documents_processed=2,
+            chunks_created=5,
+            chunks_indexed=5,
+            point_ids=["p1", "p2", "p3", "p4", "p5"],
+            errors=["Warning: doc_bad chunking issue"],
+            failures=[failure],
+        )
+        self.assertEqual(result.documents_processed, 2)
+        self.assertEqual(result.chunks_created, 5)
+        self.assertEqual(result.chunks_indexed, 5)
+        self.assertEqual(len(result.point_ids), 5)
+        self.assertFalse(result.is_success)
+        self.assertTrue(result.has_failures)
+        self.assertEqual(result.failures[0].document_id, "doc_bad")
+        self.assertEqual(result.failures[0].stage, "chunking")
+
+        # Iterable and indexing convenience
+        self.assertEqual(list(result), ["p1", "p2", "p3", "p4", "p5"])
+        self.assertEqual(result[0], "p1")
+        self.assertEqual(len(result), 5)
+
+        # List equality check
+        self.assertEqual(result, ["p1", "p2", "p3", "p4", "p5"])
 
 
 if __name__ == "__main__":
