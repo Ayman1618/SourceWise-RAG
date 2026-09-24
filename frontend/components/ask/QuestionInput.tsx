@@ -1,8 +1,13 @@
 "use client";
 
 import React from "react";
-import { Search, Loader2, ArrowRight } from "lucide-react";
-import { SAMPLE_QUESTIONS } from "@/lib/mock-data";
+import { Search, Loader2, ArrowRight, Sparkles } from "lucide-react";
+
+export const DEMO_SAMPLE_QUESTIONS = [
+  "How do I troubleshoot login failures?",
+  "What are the API rate limits?",
+  "How does authentication work?",
+];
 
 interface QuestionInputProps {
   question: string;
@@ -26,6 +31,10 @@ export function QuestionInput({
     }
   };
 
+  const handleSampleClick = (sampleQuery: string) => {
+    setQuestion(sampleQuery);
+  };
+
   return (
     <div className="bg-white rounded-lg border border-slate-200 p-4 sm:p-6 shadow-sm">
       <form onSubmit={onSubmit} className="space-y-4">
@@ -36,9 +45,9 @@ export function QuestionInput({
           >
             <span className="flex items-center space-x-1.5">
               <Search className="w-4 h-4 text-slate-500" />
-              <span>Enterprise Knowledge Search Query</span>
+              <span>Enterprise Knowledge Query</span>
             </span>
-            <span className="text-slate-400 font-normal normal-case text-xs">
+            <span className="text-slate-400 font-normal normal-case text-xs hidden sm:inline">
               Press Cmd/Ctrl + Enter to submit
             </span>
           </label>
@@ -56,26 +65,29 @@ export function QuestionInput({
           </div>
         </div>
 
-        {/* Sample Questions Pills */}
+        {/* Demo Usability: Suggested Prompts matching sample documents */}
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-slate-500 font-medium">Try asking:</span>
-          {SAMPLE_QUESTIONS.map((sample, idx) => (
+          <span className="text-slate-500 font-medium flex items-center space-x-1">
+            <Sparkles className="w-3.5 h-3.5 text-brand-900" />
+            <span>Suggested Demo Prompts:</span>
+          </span>
+          {DEMO_SAMPLE_QUESTIONS.map((sample, idx) => (
             <button
               key={idx}
               type="button"
-              onClick={() => setQuestion(sample)}
+              onClick={() => handleSampleClick(sample)}
               disabled={isLoading}
-              className="inline-flex items-center px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-normal transition-colors border border-slate-200 disabled:opacity-50"
+              className="inline-flex items-center px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-800 font-medium transition-colors border border-slate-200 disabled:opacity-50"
             >
               <span>{sample}</span>
             </button>
           ))}
         </div>
 
-        {/* Action Row */}
-        <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+        {/* Submit Action Row */}
+        <div className="flex items-center justify-between pt-2 border-t border-slate-100 flex-wrap gap-2">
           <span className="text-xs text-slate-500">
-            Searches internal documentation & support knowledge bases
+            Queries internal knowledge base via <code className="font-mono text-slate-700">POST /api/v1/query</code>
           </span>
           <button
             type="submit"
@@ -85,7 +97,7 @@ export function QuestionInput({
             {isLoading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin text-white" />
-                <span>Searching Knowledge Base...</span>
+                <span>Processing RAG Query...</span>
               </>
             ) : (
               <>
