@@ -16,6 +16,10 @@ from app.services.ingestion import (
     run_ingestion_cli,
 )
 from app.services.markdown_parser import MarkdownParseError, MarkdownParser
+from app.services.query import (
+    BaseQueryOrchestrationService,
+    QueryOrchestrationService,
+)
 from app.services.retrieval import BaseRetrievalService, QdrantRetrievalService
 from app.services.vector_store import (
     BaseVectorStoreService,
@@ -28,6 +32,7 @@ __all__ = [
     "BaseGenerationService",
     "BaseIndexingService",
     "BaseIngestionService",
+    "BaseQueryOrchestrationService",
     "BaseRetrievalService",
     "BaseVectorStoreService",
     "ChunkingService",
@@ -42,6 +47,7 @@ __all__ = [
     "OpenAIEmbeddingService",
     "QdrantRetrievalService",
     "QdrantVectorStoreService",
+    "QueryOrchestrationService",
     "VectorSearchResult",
     "run_indexing_cli",
     "run_ingestion_cli",
