@@ -6,6 +6,7 @@ from app.models.document import Document
 from app.models.generation import Answer, EvidenceStatus
 from app.models.health import HealthResponse
 from app.models.indexing import IndexingFailure, IndexingResult
+from app.models.query import QueryRequest
 from app.models.retrieval import RetrievalQuery, RetrievalResult, RetrievedChunk
 
 __all__ = [
@@ -17,7 +18,9 @@ __all__ = [
     "HealthResponse",
     "IndexingFailure",
     "IndexingResult",
+    "QueryRequest",
     "RetrievalQuery",
     "RetrievalResult",
     "RetrievedChunk",
 ]
+

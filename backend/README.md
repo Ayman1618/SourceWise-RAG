@@ -35,9 +35,11 @@ backend/
 │   ├── main.py               # FastAPI application initialization & factory
 │   ├── api/
 │   │   ├── __init__.py       # API router package
+│   │   ├── deps.py           # Dependency injection providers
 │   │   └── routes/
 │   │       ├── __init__.py   # Route handlers package
-│   │       └── health.py     # Health check endpoint (/health)
+│   │       ├── health.py     # Health check endpoint (/health)
+│   │       └── query.py      # Grounded RAG query endpoint (POST /api/v1/query)
 │   ├── core/
 │   │   ├── __init__.py       # Core package
 │   │   └── config.py         # Application settings via Pydantic Settings
@@ -45,6 +47,7 @@ backend/
 │   │   ├── __init__.py       # Data models package re-exports
 │   │   ├── document.py       # Normalized Document model
 │   │   ├── chunk.py          # Extracted text Chunk model with parent provenance
+│   │   ├── query.py          # QueryRequest model with bounds and whitespace validation
 │   │   ├── retrieval.py      # RetrievedChunk, RetrievalQuery, RetrievalResult
 │   │   ├── citation.py       # Verifiable Citation model
 │   │   ├── generation.py     # Grounded Answer model & EvidenceStatus enum
@@ -58,17 +61,21 @@ backend/
 │       ├── vector_store.py   # BaseVectorStoreService, QdrantVectorStoreService, VectorSearchResult
 │       ├── retrieval.py      # BaseRetrievalService & QdrantRetrievalService
 │       ├── indexing.py       # BaseIndexingService, DocumentIndexingService & run_indexing_cli
-│       └── generation.py     # BaseGenerationService & GroundedGenerationService
+│       ├── generation.py     # BaseGenerationService & GroundedGenerationService
+│       └── query.py          # BaseQueryOrchestrationService & QueryOrchestrationService
 ├── tests/
 │   ├── __init__.py           # Test suite package
 │   ├── test_indexing.py      # Document indexing, batch embedding & Qdrant upsert tests
 │   ├── test_ingestion_chunking.py # Ingestion, chunking, overlap & boundary tests
-│   ├── test_models.py        # Model validation and traceability tests
+│   ├── test_models.py        # Model validation, QueryRequest, and traceability tests
 │   ├── test_embedding.py     # Embedding service contracts & OpenAI mock tests
 │   ├── test_vector_store.py  # Vector store contracts & Qdrant mock tests
 │   ├── test_retrieval.py     # Semantic retrieval service & filtering tests
 │   ├── test_generation.py    # Grounded generation, citation validation & refusal tests
+│   ├── test_query_service.py # End-to-end query orchestration service tests
+│   ├── test_query_api.py     # FastAPI POST /api/v1/query endpoint tests
 │   └── test_services.py      # Service interface contracts and re-exports
+
 
 ├── requirements.txt          # Python dependencies
 ├── run_indexing.py           # CLI runner for document embedding & Qdrant indexing pipeline
@@ -142,6 +149,9 @@ Point IDs in Qdrant are generated deterministically as UUIDv5 hashes of `chunk_i
   Coordinates end-to-end document and chunk embedding and Qdrant vector indexing with batching, collection lifecycle verification, and idempotent point generation.
 - **`BaseGenerationService` / `GroundedGenerationService`** (`generate`):
   Synthesizes factually grounded answers from retrieved evidence, enforces strict refusal on insufficient/unsupported information, and constructs verifiable `Citation` objects mapped directly to source chunks.
+- **`BaseQueryOrchestrationService` / `QueryOrchestrationService`** (`query`):
+  Coordinates the full end-to-end question-answering workflow (`User Question` → `Semantic Retrieval` → `Retrieved Evidence` → `Grounded LLM Generation` → `Validated Answer + Citations`), adhering to clean architectural boundaries without direct provider coupling.
+
 
 ---
 
@@ -529,7 +539,104 @@ Verifies server status without external dependencies.
 curl -X GET http://127.0.0.1:8000/health
 ```
 
-### 2. Interactive Documentation
+### 2. Grounded RAG Query
+
+Executes end-to-end question answering against indexed documents with semantic retrieval, LLM grounding, verifiable citations, and evidence sufficiency validation.
+
+- **URL:** `POST /api/v1/query`
+- **Content-Type:** `application/json`
+- **Response Format:** `application/json` (`Answer` model)
+
+#### Request Payload (`QueryRequest`)
+
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `query` | `string` | Yes | — | Natural language user question (1–1000 characters). |
+| `top_k` | `integer` | No | `5` | Maximum number of evidence chunks to retrieve (1–100). |
+| `filters` | `object` | No | `null` | Optional metadata filtering criteria (e.g. `{"department": "engineering"}`). |
+
+**Example Request:**
+```json
+{
+  "query": "How do I troubleshoot login failures?",
+  "top_k": 5,
+  "filters": {
+    "department": "security"
+  }
+}
+```
+
+#### Response Structure (`Answer`)
+
+```json
+{
+  "query": "How do I troubleshoot login failures?",
+  "answer": "To troubleshoot login failures, inspect the authentication logs for repeated 401 statuses and check rate limit counters [cite_1].",
+  "citations": [
+    {
+      "citation_id": "cite_1",
+      "document_id": "doc_auth_guide",
+      "chunk_id": "doc_auth_guide#chunk_0",
+      "source_title": "Authentication Architecture & Runbook",
+      "passage": "Inspect the authentication logs for repeated 401 statuses and verify rate limit redis cluster.",
+      "source_path": "docs/security/auth.md",
+      "score": 0.93
+    }
+  ],
+  "evidence": [
+    {
+      "chunk": {
+        "chunk_id": "doc_auth_guide#chunk_0",
+        "document_id": "doc_auth_guide",
+        "text": "Inspect the authentication logs for repeated 401 statuses and verify rate limit redis cluster.",
+        "chunk_index": 0,
+        "token_count": 85,
+        "metadata": {
+          "title": "Authentication Architecture & Runbook",
+          "source_path": "docs/security/auth.md"
+        }
+      },
+      "score": 0.93,
+      "rank": 1,
+      "retrieval_method": "dense"
+    }
+  ],
+  "confidence_score": 0.93,
+  "evidence_status": "sufficient",
+  "has_sufficient_evidence": true,
+  "metadata": {
+    "model": "gpt-4o-mini",
+    "citation_count": 1
+  }
+}
+```
+
+#### Example Insufficient Evidence Response
+
+```json
+{
+  "query": "What is the secret corporate roadmap?",
+  "answer": "I couldn't find sufficient supporting information in the available knowledge base to answer this reliably.",
+  "citations": [],
+  "evidence": [],
+  "confidence_score": 0.0,
+  "evidence_status": "insufficient",
+  "has_sufficient_evidence": false,
+  "metadata": {}
+}
+```
+
+**Execute using cURL:**
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "How do I troubleshoot login failures?",
+    "top_k": 5
+  }'
+```
+
+### 3. Interactive Documentation
 
 FastAPI provides built-in, interactive OpenAPI documentation:
 
@@ -539,15 +646,12 @@ FastAPI provides built-in, interactive OpenAPI documentation:
 
 ---
 
-## Current Scope & Future Roadmap
+## Current Scope & Architecture Overview
 
-- **PR Scope:** Document embedding and Qdrant indexing pipeline:
-  - `BaseIndexingService` and `DocumentIndexingService` connecting ingestion/chunking to embedding and vector store.
-  - Batch embedding processing and collection provisioning via abstract contracts.
-  - Idempotent indexing preserving full chunk and document provenance metadata.
-  - Mocked unit tests and offline integration test (document -> chunks -> vectors -> Qdrant -> retrievable evidence).
-  - CLI runner `run_indexing.py` and `run_indexing_cli`.
-- **Planned in Future PRs:**
-  - Grounded answer generation and LLM response formatting (`app/services/generation.py`).
-  - Citation verification and prompt engineering.
-  - Query & generation API endpoints (`/api/v1/query`, `/api/v1/documents`).
+- **Pipeline Architecture:**
+  1. **Ingestion & Chunking**: Markdown parsing with frontmatter metadata, boundary-aware chunking with token overlap.
+  2. **Embedding & Vector Storage**: OpenAI-compatible dense embeddings, Qdrant collection lifecycle and search.
+  3. **Semantic Retrieval**: Top-k similarity retrieval with metadata filters and provenance preservation.
+  4. **Grounded Generation**: Structured JSON generation, strict grounding prompts, citation validation, and refusal handling.
+  5. **Query Orchestration & API Layer**: `QueryOrchestrationService`, FastAPI dependency injection wiring, `POST /api/v1/query` endpoint with full error handling and OpenAPI documentation.
+

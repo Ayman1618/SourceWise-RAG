@@ -14,6 +14,7 @@ from app.services.embedding import BaseEmbeddingService
 from app.services.generation import BaseGenerationService
 from app.services.indexing import BaseIndexingService
 from app.services.ingestion import BaseIngestionService
+from app.services.query import BaseQueryOrchestrationService
 from app.services.retrieval import BaseRetrievalService
 from app.services.vector_store import BaseVectorStoreService
 
@@ -40,6 +41,10 @@ class TestServiceInterfaces(unittest.TestCase):
 
         with self.assertRaises(TypeError):
             BaseIndexingService()  # type: ignore[abstract]
+
+        with self.assertRaises(TypeError):
+            BaseQueryOrchestrationService()  # type: ignore[abstract]
+
 
 
     def test_concrete_mock_implementations(self) -> None:

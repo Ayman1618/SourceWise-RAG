@@ -11,6 +11,7 @@ from app.models.document import Document
 from app.models.generation import Answer, EvidenceStatus
 from app.models.health import HealthResponse
 from app.models.indexing import IndexingFailure, IndexingResult
+from app.models.query import QueryRequest
 from app.models.retrieval import RetrievalQuery, RetrievalResult, RetrievedChunk
 
 
@@ -371,5 +372,45 @@ class TestIndexingModels(unittest.TestCase):
         self.assertEqual(result, ["p1", "p2", "p3", "p4", "p5"])
 
 
+class TestQueryRequestModel(unittest.TestCase):
+    """Tests for QueryRequest schema validation."""
+
+    def test_valid_query_request(self) -> None:
+        """Verify QueryRequest creation with default and custom values."""
+        req = QueryRequest(query="  How do I troubleshoot login?  ")
+        self.assertEqual(req.query, "How do I troubleshoot login?")
+        self.assertEqual(req.top_k, 5)
+        self.assertIsNone(req.filters)
+
+        req2 = QueryRequest(
+            query="Find runbook",
+            top_k=10,
+            filters={"department": "security"},
+        )
+        self.assertEqual(req2.query, "Find runbook")
+        self.assertEqual(req2.top_k, 10)
+        self.assertEqual(req2.filters, {"department": "security"})
+
+    def test_invalid_query_request_empty_or_whitespace(self) -> None:
+        """Verify validation errors for blank queries."""
+        with self.assertRaises(ValidationError):
+            QueryRequest(query="")
+
+        with self.assertRaises(ValidationError):
+            QueryRequest(query="   \n\t  ")
+
+    def test_invalid_query_request_bounds(self) -> None:
+        """Verify bounds validation on top_k and query length."""
+        with self.assertRaises(ValidationError):
+            QueryRequest(query="valid query", top_k=0)
+
+        with self.assertRaises(ValidationError):
+            QueryRequest(query="valid query", top_k=101)
+
+        with self.assertRaises(ValidationError):
+            QueryRequest(query="x" * 1001)
+
+
 if __name__ == "__main__":
     unittest.main()
+
