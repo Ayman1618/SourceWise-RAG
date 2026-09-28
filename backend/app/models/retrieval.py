@@ -51,6 +51,61 @@ class RetrievedChunk(BaseModel):
         """Convenience property to access chunk text."""
         return self.chunk.text
 
+    @property
+    def metadata(self) -> dict[str, Any]:
+        """Convenience property to access chunk metadata dictionary."""
+        return self.chunk.metadata
+
+    @property
+    def title(self) -> str | None:
+        """Convenience property to access document title from chunk metadata."""
+        return self.chunk.metadata.get("title")
+
+    @property
+    def source_type(self) -> str | None:
+        """Convenience property to access document source_type from chunk metadata."""
+        return self.chunk.metadata.get("source_type")
+
+    @property
+    def product(self) -> str | None:
+        """Convenience property to access product from chunk metadata."""
+        return self.chunk.metadata.get("product")
+
+    @property
+    def version(self) -> str | None:
+        """Convenience property to access version from chunk metadata."""
+        return self.chunk.metadata.get("version")
+
+    @property
+    def department(self) -> str | None:
+        """Convenience property to access department from chunk metadata."""
+        return self.chunk.metadata.get("department")
+
+    @property
+    def owner(self) -> str | None:
+        """Convenience property to access owner from chunk metadata."""
+        return self.chunk.metadata.get("owner")
+
+    @property
+    def last_updated(self) -> Any:
+        """Convenience property to access last_updated from chunk metadata."""
+        return self.chunk.metadata.get("last_updated")
+
+    @property
+    def access_level(self) -> str | None:
+        """Convenience property to access access_level from chunk metadata."""
+        return self.chunk.metadata.get("access_level")
+
+    @property
+    def language(self) -> str | None:
+        """Convenience property to access language from chunk metadata."""
+        return self.chunk.metadata.get("language")
+
+    @property
+    def source_path(self) -> str | None:
+        """Convenience property to access source_path from chunk metadata."""
+        return self.chunk.metadata.get("source_path")
+
 
 class RetrievalQuery(BaseModel):
     """Represents retrieval request parameters."""

@@ -17,7 +17,10 @@ from app.services.embedding import BaseEmbeddingService
 from app.services.indexing import (
     BaseIndexingService,
     DocumentIndexingService,
+    IndexingCLIResult,
     IndexingError,
+    execute_indexing_cli,
+    find_sample_documents_dir,
     run_indexing_cli,
 )
 from app.services.ingestion import DocumentIngestionService
@@ -780,6 +783,387 @@ class TestOfflineIndexingIntegration(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(len(docs), 3)
         self.assertGreaterEqual(len(chunks), 6)
         self.assertEqual(len(point_ids), len(chunks))
+
+
+class TestPR17ProductionIndexingRequirements(unittest.IsolatedAsyncioTestCase):
+    """Targeted tests for PR 17 requirements:
+
+    1. Document discovery
+    2. Metadata extraction
+    3. Chunking
+    4. Deterministic IDs
+    5. Repeated indexing (idempotency)
+    6. Metadata preservation (all 11 fields)
+    7. Embedding batching
+    8. Vector upsert
+    9. Failure handling and structured reporting
+    10. Demo knowledge-base coherence
+    """
+
+    def setUp(self) -> None:
+        self.sample_docs_dir = (
+            Path(__file__).resolve().parent.parent.parent / "data" / "sample-documents"
+        )
+        self.in_memory_client = QdrantClient(":memory:")
+
+    def test_document_discovery(self) -> None:
+        """Verify document discovery locates sample documents directory and files."""
+        # 1. Automatic discovery locates data/sample-documents
+        discovered_dir = find_sample_documents_dir()
+        self.assertTrue(discovered_dir.exists())
+        self.assertTrue(discovered_dir.is_dir())
+
+        # Verify Markdown files present
+        md_files = list(discovered_dir.glob("*.md"))
+        file_names = {f.name for f in md_files}
+        self.assertIn("api-rate-limits.md", file_names)
+        self.assertIn("product-authentication-guide.md", file_names)
+        self.assertIn("support-login-troubleshooting.md", file_names)
+
+        # 2. Custom valid directory
+        custom_dir = find_sample_documents_dir(str(self.sample_docs_dir))
+        self.assertEqual(custom_dir, self.sample_docs_dir.resolve())
+
+        # 3. Invalid directory raises FileNotFoundError
+        with self.assertRaises(FileNotFoundError):
+            find_sample_documents_dir("non_existent_folder_abc_123")
+
+    async def test_metadata_extraction(self) -> None:
+        """Verify metadata extraction parses frontmatter into canonical Document model."""
+        ingestion = DocumentIngestionService()
+        documents = await ingestion.ingest(self.sample_docs_dir)
+
+        docs_by_id = {doc.document_id: doc for doc in documents}
+        self.assertIn("sample-api-rate-limits", docs_by_id)
+        self.assertIn("sample-authentication-guide", docs_by_id)
+        self.assertIn("sample-login-troubleshooting", docs_by_id)
+
+        rate_limit_doc = docs_by_id["sample-api-rate-limits"]
+        self.assertEqual(rate_limit_doc.title, "API Rate Limits and Quota Management")
+        self.assertEqual(rate_limit_doc.source_type, "product_documentation")
+        self.assertEqual(rate_limit_doc.product, "SourceWise Platform")
+        self.assertEqual(rate_limit_doc.version, "2.0")
+        self.assertEqual(rate_limit_doc.department, "Engineering")
+        self.assertEqual(rate_limit_doc.owner, "API Infrastructure Team")
+        self.assertEqual(str(rate_limit_doc.last_updated), "2026-09-14")
+        self.assertEqual(rate_limit_doc.access_level, "internal")
+        self.assertEqual(rate_limit_doc.language, "en")
+
+    async def test_chunking(self) -> None:
+        """Verify chunking segments documents into traceable chunks with correct indexes."""
+        ingestion = DocumentIngestionService()
+        documents = await ingestion.ingest(self.sample_docs_dir)
+
+        total_chunks = 0
+        for doc in documents:
+            chunks = await ingestion.chunk_document(doc)
+            self.assertGreater(len(chunks), 0)
+            total_chunks += len(chunks)
+            for idx, chunk in enumerate(chunks):
+                self.assertEqual(chunk.chunk_index, idx)
+                self.assertEqual(chunk.chunk_id, f"{doc.document_id}#chunk_{idx}")
+                self.assertEqual(chunk.document_id, doc.document_id)
+                self.assertTrue(chunk.text.strip())
+                self.assertIsNotNone(chunk.token_count)
+                self.assertGreater(chunk.token_count, 0)
+        self.assertGreaterEqual(total_chunks, 6)
+
+    def test_deterministic_ids(self) -> None:
+        """Verify chunk_id and UUIDv5 point IDs are deterministic and reproducible."""
+        chunk_id = "sample-auth-guide#chunk_2"
+        point_id_1 = QdrantVectorStoreService.chunk_id_to_point_id(chunk_id)
+        point_id_2 = QdrantVectorStoreService.chunk_id_to_point_id(chunk_id)
+
+        self.assertEqual(point_id_1, point_id_2)
+        # Distinct chunk IDs produce distinct point IDs
+        other_point_id = QdrantVectorStoreService.chunk_id_to_point_id("sample-auth-guide#chunk_3")
+        self.assertNotEqual(point_id_1, other_point_id)
+
+    async def test_repeated_indexing_idempotency(self) -> None:
+        """Verify running indexing multiple times with the same documents does not create duplicate vectors."""
+        vector_store = QdrantVectorStoreService(
+            client=self.in_memory_client,
+            collection_name="test_idempotent_indexing",
+            vector_size=8,
+        )
+
+        mock_embedding = MagicMock(spec=BaseEmbeddingService)
+        mock_embedding.embed_texts.return_value = [[0.1] * 8, [0.2] * 8]
+
+        sample_chunk_a = Chunk(
+            chunk_id="doc_idem#chunk_0",
+            document_id="doc_idem",
+            text="First chunk content.",
+            chunk_index=0,
+            token_count=3,
+        )
+        sample_chunk_b = Chunk(
+            chunk_id="doc_idem#chunk_1",
+            document_id="doc_idem",
+            text="Second chunk content.",
+            chunk_index=1,
+            token_count=3,
+        )
+
+        indexing_service = DocumentIndexingService(
+            embedding_service=mock_embedding,
+            vector_store_service=vector_store,
+            batch_size=2,
+        )
+
+        # First run
+        points_run1 = await indexing_service.index_chunks([sample_chunk_a, sample_chunk_b])
+        self.assertEqual(len(points_run1), 2)
+
+        count_1 = self.in_memory_client.count("test_idempotent_indexing").count
+        self.assertEqual(count_1, 2)
+
+        # Second run (re-indexing identical chunks)
+        points_run2 = await indexing_service.index_chunks([sample_chunk_a, sample_chunk_b])
+        self.assertEqual(points_run1, points_run2)
+
+        count_2 = self.in_memory_client.count("test_idempotent_indexing").count
+        self.assertEqual(count_2, 2, "Points count must remain 2 after re-indexing; no duplicates allowed.")
+
+    async def test_metadata_preservation_through_pipeline(self) -> None:
+        """Verify all 11 required metadata fields are preserved through Document -> Chunk -> Vector payload -> RetrievedChunk."""
+        vector_store = QdrantVectorStoreService(
+            client=QdrantClient(":memory:"),
+            collection_name="test_meta_preservation",
+            vector_size=4,
+        )
+
+        class FixedEmbedding(BaseEmbeddingService):
+            def embed_text(self, text: str) -> list[float]:
+                return [0.1, 0.2, 0.3, 0.4]
+
+            def embed_texts(self, texts: list[str]) -> list[list[float]]:
+                return [self.embed_text(t) for t in texts]
+
+            def query_embedding(self, query: str) -> list[float]:
+                return self.embed_text(query)
+
+        emb_service = FixedEmbedding()
+        indexing_service = DocumentIndexingService(
+            embedding_service=emb_service,
+            vector_store_service=vector_store,
+        )
+
+        test_doc = Document(
+            document_id="doc_preserve_test",
+            title="Preservation Test Doc",
+            content="# Title\n\nContent for testing metadata preservation.",
+            source_type="product_documentation",
+            product="SourceWise Core",
+            version="3.0",
+            department="DevRel",
+            owner="devrel@sourcewise.internal",
+            last_updated="2026-09-20",
+            access_level="public",
+            language="en",
+            source_path="docs/test.md",
+        )
+
+        result = await indexing_service.index_documents(test_doc)
+        self.assertTrue(result.is_success)
+        self.assertEqual(result.documents_processed, 1)
+        self.assertGreaterEqual(result.vectors_upserted, 1)
+
+        retrieval = QdrantRetrievalService(
+            embedding_service=emb_service,
+            vector_store_service=vector_store,
+        )
+
+        retrieved = await retrieval.retrieve("Preservation Test", top_k=1)
+        self.assertEqual(len(retrieved), 1)
+        item = retrieved[0]
+
+        # Verify all 11 target fields
+        self.assertEqual(item.document_id, "doc_preserve_test")
+        self.assertEqual(item.title, "Preservation Test Doc")
+        self.assertEqual(item.source_type, "product_documentation")
+        self.assertEqual(item.product, "SourceWise Core")
+        self.assertEqual(item.version, "3.0")
+        self.assertEqual(item.department, "DevRel")
+        self.assertEqual(item.owner, "devrel@sourcewise.internal")
+        self.assertEqual(str(item.last_updated), "2026-09-20")
+        self.assertEqual(item.access_level, "public")
+        self.assertEqual(item.language, "en")
+        self.assertEqual(item.source_path, "docs/test.md")
+
+    async def test_embedding_batching(self) -> None:
+        """Verify embedding batching processes chunks in configured batch sizes without skipping."""
+        mock_embedding = MagicMock(spec=BaseEmbeddingService)
+        # 7 chunks with batch_size=3 -> [3, 3, 1]
+        mock_embedding.embed_texts.side_effect = [
+            [[0.1] * 4, [0.2] * 4, [0.3] * 4],
+            [[0.4] * 4, [0.5] * 4, [0.6] * 4],
+            [[0.7] * 4],
+        ]
+
+        mock_vector_store = MagicMock(spec=BaseVectorStoreService)
+        mock_vector_store.store_chunks.side_effect = [
+            ["p0", "p1", "p2"],
+            ["p3", "p4", "p5"],
+            ["p6"],
+        ]
+
+        service = DocumentIndexingService(
+            embedding_service=mock_embedding,
+            vector_store_service=mock_vector_store,
+            batch_size=3,
+        )
+
+        chunks = [
+            Chunk(
+                chunk_id=f"test_batch#chunk_{i}",
+                document_id="test_batch",
+                text=f"Batch chunk text {i}",
+                chunk_index=i,
+            )
+            for i in range(7)
+        ]
+
+        point_ids = await service.index_chunks(chunks)
+        self.assertEqual(len(point_ids), 7)
+        self.assertEqual(mock_embedding.embed_texts.call_count, 3)
+
+        batch_sizes = [len(call[0][0]) for call in mock_embedding.embed_texts.call_args_list]
+        self.assertEqual(batch_sizes, [3, 3, 1])
+
+    async def test_vector_upsert_payload(self) -> None:
+        """Verify vector upsert stores properly formatted payloads in vector database."""
+        client = QdrantClient(":memory:")
+        vector_store = QdrantVectorStoreService(
+            client=client,
+            collection_name="test_upsert_payload_collection",
+            vector_size=4,
+        )
+
+        chunk = Chunk(
+            chunk_id="doc_upsert#chunk_0",
+            document_id="doc_upsert",
+            text="Upsert payload test content",
+            chunk_index=0,
+            token_count=4,
+            metadata={"title": "Upsert Title", "owner": "Owner A"},
+        )
+
+        point_ids = vector_store.store_chunks(
+            chunks=[chunk],
+            vectors=[[0.1, 0.2, 0.3, 0.4]],
+        )
+
+        self.assertEqual(len(point_ids), 1)
+        point_id = point_ids[0]
+
+        retrieved_point = client.retrieve(
+            collection_name="test_upsert_payload_collection",
+            ids=[point_id],
+            with_payload=True,
+        )
+        self.assertEqual(len(retrieved_point), 1)
+        p = retrieved_point[0]
+        self.assertEqual(p.payload["chunk_id"], "doc_upsert#chunk_0")
+        self.assertEqual(p.payload["document_id"], "doc_upsert")
+        self.assertEqual(p.payload["text"], "Upsert payload test content")
+        self.assertEqual(p.payload["chunk_index"], 0)
+        self.assertEqual(p.payload["metadata"]["title"], "Upsert Title")
+
+    async def test_failure_handling_and_structured_result(self) -> None:
+        """Verify failure handling reports structured IndexingResult with failures."""
+        mock_embedding = MagicMock(spec=BaseEmbeddingService)
+        mock_embedding.embed_texts.side_effect = RuntimeError("Embedding service unavailable (HTTP 503)")
+
+        mock_vector_store = MagicMock(spec=BaseVectorStoreService)
+
+        service = DocumentIndexingService(
+            embedding_service=mock_embedding,
+            vector_store_service=mock_vector_store,
+        )
+
+        test_doc = Document(
+            document_id="doc_fail_test",
+            title="Fail Test",
+            content="Content for failure testing",
+        )
+
+        result = await service.index_documents(test_doc, raise_on_error=False)
+
+        self.assertFalse(result.is_success)
+        self.assertTrue(result.has_failures)
+        self.assertEqual(result.documents_processed, 1)
+        self.assertEqual(result.chunks_indexed, 0)
+        self.assertEqual(result.vectors_upserted, 0)
+        self.assertEqual(len(result.failures), 1)
+        self.assertEqual(result.failures[0].stage, "storage")
+        self.assertIn("Embedding service unavailable", result.failures[0].error)
+
+    async def test_demo_knowledge_base_queries(self) -> None:
+        """Verify the 3 core demo questions retrieve coherent evidence from the demo documents."""
+        client = QdrantClient(":memory:")
+        VOCAB = ["troubleshoot", "login", "failure", "rate", "limit", "authentication", "oauth", "quota"]
+        vector_dim = len(VOCAB)
+        col_name = "test_demo_kb_collection"
+
+        class VocabEmbedding(BaseEmbeddingService):
+            def _embed(self, text: str) -> list[float]:
+                raw = text.lower()
+                vec = [float(raw.count(w)) for w in VOCAB]
+                if sum(v * v for v in vec) == 0:
+                    vec = [0.001] * len(VOCAB)
+                return vec
+
+            def embed_text(self, text: str) -> list[float]:
+                return self._embed(text)
+
+            def embed_texts(self, texts: list[str]) -> list[list[float]]:
+                return [self._embed(t) for t in texts]
+
+            def query_embedding(self, query: str) -> list[float]:
+                return self._embed(query)
+
+        emb_service = VocabEmbedding()
+        vs_service = QdrantVectorStoreService(
+            client=client,
+            collection_name=col_name,
+            vector_size=vector_dim,
+        )
+        ingestion = DocumentIngestionService()
+        indexing = DocumentIndexingService(
+            embedding_service=emb_service,
+            vector_store_service=vs_service,
+            chunking_service=ingestion,
+        )
+
+        # Ingest and index all sample documents
+        docs = await ingestion.ingest(self.sample_docs_dir)
+        result = await indexing.index_documents(docs, collection_name=col_name)
+        self.assertTrue(result.is_success)
+        self.assertEqual(result.documents_processed, 3)
+
+        retrieval = QdrantRetrievalService(
+            embedding_service=emb_service,
+            vector_store_service=vs_service,
+        )
+
+        # 1. "How do I troubleshoot login failures?"
+        login_res = await retrieval.retrieve("How do I troubleshoot login failures?", top_k=2, collection_name=col_name)
+        self.assertGreaterEqual(len(login_res), 1)
+        self.assertEqual(login_res[0].document_id, "sample-login-troubleshooting")
+        self.assertIn("login", login_res[0].text.lower())
+
+        # 2. "What are the API rate limits?"
+        rate_res = await retrieval.retrieve("What are the API rate limits?", top_k=2, collection_name=col_name)
+        self.assertGreaterEqual(len(rate_res), 1)
+        self.assertEqual(rate_res[0].document_id, "sample-api-rate-limits")
+        self.assertIn("rate limit", rate_res[0].text.lower())
+
+        # 3. "How does authentication work?"
+        auth_res = await retrieval.retrieve("How does authentication work?", top_k=2, collection_name=col_name)
+        self.assertGreaterEqual(len(auth_res), 1)
+        self.assertEqual(auth_res[0].document_id, "sample-authentication-guide")
+        self.assertIn("auth", auth_res[0].text.lower())
 
 
 if __name__ == "__main__":

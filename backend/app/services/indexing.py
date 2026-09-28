@@ -204,6 +204,8 @@ class DocumentIndexingService(BaseIndexingService):
                 documents_processed=0,
                 chunks_created=0,
                 chunks_indexed=0,
+                embeddings_generated=0,
+                vectors_upserted=0,
                 point_ids=[],
                 errors=[],
                 failures=[],
@@ -215,6 +217,8 @@ class DocumentIndexingService(BaseIndexingService):
                 documents_processed=0,
                 chunks_created=0,
                 chunks_indexed=0,
+                embeddings_generated=0,
+                vectors_upserted=0,
                 point_ids=[],
                 errors=[],
                 failures=[],
@@ -256,6 +260,8 @@ class DocumentIndexingService(BaseIndexingService):
                 documents_processed=documents_processed,
                 chunks_created=0,
                 chunks_indexed=0,
+                embeddings_generated=0,
+                vectors_upserted=0,
                 point_ids=[],
                 errors=errors,
                 failures=failures,
@@ -263,6 +269,8 @@ class DocumentIndexingService(BaseIndexingService):
 
         point_ids: list[str] = []
         chunks_indexed = 0
+        embeddings_generated = 0
+        vectors_upserted = 0
         try:
             point_ids = await self.index_chunks(
                 chunks=all_chunks,
@@ -271,6 +279,8 @@ class DocumentIndexingService(BaseIndexingService):
                 **kwargs,
             )
             chunks_indexed = len(point_ids)
+            embeddings_generated = len(all_chunks)
+            vectors_upserted = len(point_ids)
         except Exception as exc:
             err_msg = f"Indexing failed during embedding or vector storage: {exc}"
             failure = IndexingFailure(
@@ -288,6 +298,8 @@ class DocumentIndexingService(BaseIndexingService):
             documents_processed=documents_processed,
             chunks_created=chunks_created,
             chunks_indexed=chunks_indexed,
+            embeddings_generated=embeddings_generated,
+            vectors_upserted=vectors_upserted,
             point_ids=point_ids,
             errors=errors,
             failures=failures,
@@ -392,6 +404,63 @@ class DocumentIndexingService(BaseIndexingService):
         return all_point_ids
 
 
+def find_sample_documents_dir(custom_path: str | Path | None = None) -> Path:
+    """Resolve directory containing sample documents across different invocation contexts."""
+    if custom_path:
+        p = Path(custom_path).resolve()
+        if p.exists():
+            return p
+        raise FileNotFoundError(f"Specified document directory does not exist: {custom_path}")
+
+    # Search candidate locations
+    candidates = [
+        # Relative to current file: backend/app/services/indexing.py -> repo root / data / sample-documents
+        Path(__file__).resolve().parent.parent.parent.parent / "data" / "sample-documents",
+        # Relative to backend/
+        Path(__file__).resolve().parent.parent.parent / "data" / "sample-documents",
+        # Relative to CWD
+        Path.cwd() / "data" / "sample-documents",
+        Path.cwd().parent / "data" / "sample-documents",
+    ]
+    for cand in candidates:
+        if cand.exists() and cand.is_dir():
+            return cand
+
+    return candidates[0]
+
+
+class IndexingCLIResult(tuple):
+    """3-tuple subclass for CLI results: (documents, chunks, point_ids) with extra metadata."""
+
+    def __new__(
+        cls,
+        documents: list[Document],
+        chunks: list[Chunk],
+        point_ids: list[str],
+        result: IndexingResult | None = None,
+    ):
+        return super().__new__(cls, (documents, chunks, point_ids))
+
+    def __init__(
+        self,
+        documents: list[Document],
+        chunks: list[Chunk],
+        point_ids: list[str],
+        result: IndexingResult | None = None,
+    ):
+        self.documents = documents
+        self.chunks = chunks
+        self.point_ids = point_ids
+        self.result = result or IndexingResult(
+            documents_processed=len(documents),
+            chunks_created=len(chunks),
+            chunks_indexed=len(point_ids),
+            embeddings_generated=len(point_ids),
+            vectors_upserted=len(point_ids),
+            point_ids=point_ids,
+        )
+
+
 def run_indexing_cli(
     directory_path: str | Path | None = None,
     collection_name: str | None = None,
@@ -399,7 +468,8 @@ def run_indexing_cli(
     in_memory: bool = False,
     embedding_service: BaseEmbeddingService | None = None,
     vector_store_service: BaseVectorStoreService | None = None,
-) -> tuple[list[Document], list[Chunk], list[str]]:
+    raise_on_error: bool = True,
+) -> IndexingCLIResult:
     """Synchronous CLI helper to ingest, chunk, embed, and index documents.
 
     Args:
@@ -409,18 +479,15 @@ def run_indexing_cli(
         in_memory: If True, uses an in-memory Qdrant client and stub embeddings for offline execution.
         embedding_service: Optional custom BaseEmbeddingService.
         vector_store_service: Optional custom BaseVectorStoreService.
+        raise_on_error: Whether to raise an exception on error (defaults to True).
 
     Returns:
-        tuple[list[Document], list[Chunk], list[str]]: Indexed documents, extracted chunks, and stored point IDs.
+        IndexingCLIResult: Subclass of tuple(documents, chunks, point_ids) with .result attribute.
     """
     import asyncio
     import hashlib
 
-    target_dir = (
-        Path(directory_path)
-        if directory_path
-        else Path(__file__).resolve().parent.parent.parent.parent / "data" / "sample-documents"
-    )
+    target_dir = find_sample_documents_dir(directory_path)
 
     ingestion_service = DocumentIngestionService()
 
@@ -457,7 +524,7 @@ def run_indexing_cli(
         batch_size=batch_size,
     )
 
-    async def _execute() -> tuple[list[Document], list[Chunk], list[str]]:
+    async def _execute() -> IndexingCLIResult:
         documents = await ingestion_service.ingest(target_dir)
         all_chunks: list[Chunk] = []
         for doc in documents:
@@ -467,8 +534,99 @@ def run_indexing_cli(
             documents=documents,
             collection_name=collection_name,
             batch_size=batch_size,
-            raise_on_error=True,
+            raise_on_error=raise_on_error,
         )
-        return documents, all_chunks, result.point_ids
+        return IndexingCLIResult(
+            documents=documents,
+            chunks=all_chunks,
+            point_ids=result.point_ids,
+            result=result,
+        )
 
     return asyncio.run(_execute())
+
+
+def execute_indexing_cli(args_list: list[str] | None = None) -> None:
+    """Parse CLI arguments, execute indexing pipeline, and report structured results."""
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(
+        description="Index documents into Qdrant vector database."
+    )
+    parser.add_argument(
+        "directory",
+        nargs="?",
+        default=None,
+        help="Path to directory containing Markdown documents (defaults to discovered data/sample-documents).",
+    )
+    parser.add_argument(
+        "--collection",
+        default=None,
+        help="Target Qdrant collection name.",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="Batch size for embedding generation and upsert.",
+    )
+    parser.add_argument(
+        "--in-memory",
+        action="store_true",
+        help="Run completely offline using in-memory Qdrant and SHA256-stub embeddings (no API keys required).",
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress intermediate progress output.",
+    )
+
+    args = parser.parse_args(args_list)
+
+    mode_label = "in-memory / offline mode" if args.in_memory else "live service mode"
+    if not args.quiet:
+        print(f"Starting document indexing pipeline ({mode_label})...")
+
+    try:
+        cli_result = run_indexing_cli(
+            directory_path=args.directory,
+            collection_name=args.collection,
+            batch_size=args.batch_size,
+            in_memory=args.in_memory,
+            raise_on_error=False,
+        )
+    except Exception as exc:
+        print(f"Error during indexing: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    result = cli_result.result
+    chunks = cli_result.chunks
+    point_ids = cli_result.point_ids
+
+    print("\n--- Indexing Summary ---")
+    print(f"Documents processed:  {result.documents_processed}")
+    print(f"Chunks created:       {result.chunks_created}")
+    print(f"Embeddings generated: {result.embeddings_generated}")
+    print(f"Vectors upserted:     {result.vectors_upserted}")
+    print(f"Failures:             {len(result.failures)}")
+
+    if result.failures:
+        print("\nFailure details:")
+        for f in result.failures:
+            doc_str = f" [doc: {f.document_id}]" if f.document_id else ""
+            print(f"  - Stage: {f.stage}{doc_str} | Error: {f.error}")
+
+    if point_ids and not args.quiet:
+        print(f"\nSample point ID:      {point_ids[0]}")
+        if chunks:
+            print(f"Sample chunk ID:      {chunks[0].chunk_id}")
+            print(f"Sample parent doc:    {chunks[0].document_id}")
+            print(f"Sample text snippet:  {chunks[0].text[:100]}...")
+
+    if result.has_failures and not result.is_success:
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    execute_indexing_cli()
