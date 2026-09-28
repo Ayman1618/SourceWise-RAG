@@ -3,13 +3,13 @@
 Backend service for SourceWise RAG, an evidence-first enterprise knowledge assistant designed to retrieve, verify, and cite internal documentation passages.
 
 ---
-
 ## Purpose
 
 The backend provides the API infrastructure, data models, vector storage layer, and pipeline services for SourceWise RAG:
 - **Foundational Architecture:** FastAPI application setup, structured configuration via Pydantic Settings, modular router layout, and health checks.
 - **RAG Pipeline Contracts:** Typed Pydantic data models establishing strict provenance and citation traceability between documents, chunks, retrieved evidence, citations, and generated answers.
-- **Embedding Foundation:** Provider-agnostic embedding interface (`BaseEmbeddingService`) and OpenAI-compatible implementation (`OpenAIEmbeddingService`) supporting custom models and local endpoints.
+- **Embedding Foundation:** Provider-agnostic embedding interface (`BaseEmbeddingService`) with default Google Gemini implementation (`GeminiEmbeddingService`) using `gemini-embedding-2` (1536 dimensions) on the Google AI Studio free tier.
+- **Grounded Generation:** Strict evidence-first generation (`BaseGenerationService`) powered by Google Gemini (`GeminiGenerationService`) using `gemini-2.5-flash-lite` on the free tier.
 - **Qdrant Vector Store:** Vector database abstraction (`BaseVectorStoreService`) and Qdrant implementation (`QdrantVectorStoreService`) managing collection lifecycle, deterministic point indexing, and payload preservation.
 
 ---
@@ -20,7 +20,7 @@ The backend provides the API infrastructure, data models, vector storage layer, 
 - **Web Framework:** [FastAPI](https://fastapi.tiangolo.com/) (0.110+)
 - **ASGI Server:** [Uvicorn](https://www.uvicorn.org/) (0.28+)
 - **Vector Database Client:** [qdrant-client](https://github.com/qdrant/qdrant-client) (1.8+)
-- **LLM/Embedding Client:** [openai](https://github.com/openai/openai-python) (1.0+)
+- **LLM/Embedding Client:** [google-genai](https://pypi.org/project/google-genai/) (1.0+) — Google Gemini Free Tier
 - **Data Validation & Settings:** [Pydantic v2](https://docs.pydantic.dev/) & [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)
 - **Testing:** [pytest](https://docs.pytest.org/) (8.0+) / `unittest`
 
@@ -57,18 +57,18 @@ backend/
 │       ├── markdown_parser.py# Markdown YAML frontmatter parser & normalizer
 │       ├── chunking.py       # Markdown-aware ChunkingService (500-800 tok, 50-100 overlap)
 │       ├── ingestion.py      # BaseIngestionService contract & DocumentIngestionService
-│       ├── embedding.py      # BaseEmbeddingService & OpenAIEmbeddingService
+│       ├── embedding.py      # BaseEmbeddingService, GeminiEmbeddingService & OpenAIEmbeddingService
 │       ├── vector_store.py   # BaseVectorStoreService, QdrantVectorStoreService, VectorSearchResult
 │       ├── retrieval.py      # BaseRetrievalService & QdrantRetrievalService
 │       ├── indexing.py       # BaseIndexingService, DocumentIndexingService & run_indexing_cli
-│       ├── generation.py     # BaseGenerationService & GroundedGenerationService
+│       ├── generation.py     # BaseGenerationService, GeminiGenerationService & GroundedGenerationService
 │       └── query.py          # BaseQueryOrchestrationService & QueryOrchestrationService
 ├── tests/
 │   ├── __init__.py           # Test suite package
 │   ├── test_indexing.py      # Document indexing, batch embedding & Qdrant upsert tests
 │   ├── test_ingestion_chunking.py # Ingestion, chunking, overlap & boundary tests
 │   ├── test_models.py        # Model validation, QueryRequest, and traceability tests
-│   ├── test_embedding.py     # Embedding service contracts & OpenAI mock tests
+│   ├── test_embedding.py     # Embedding service contracts & Gemini mock tests
 │   ├── test_vector_store.py  # Vector store contracts & Qdrant mock tests
 │   ├── test_retrieval.py     # Semantic retrieval service & filtering tests
 │   ├── test_generation.py    # Grounded generation, citation validation & refusal tests
@@ -137,21 +137,20 @@ Point IDs in Qdrant are generated deterministically as UUIDv5 hashes of `chunk_i
 
 ## Pipeline Services
 
-- **`BaseEmbeddingService` / `OpenAIEmbeddingService`** (`embed_text`, `embed_texts`, `query_embedding`):
-  Generates dense vector representations using OpenAI or any OpenAI-compatible provider (e.g. Ollama, LiteLLM, Azure).
+- **`BaseEmbeddingService` / `GeminiEmbeddingService`** (`embed_text`, `embed_texts`, `query_embedding`):
+  Generates dense vector representations using Google Gemini (`gemini-embedding-2`, 1536 dimensions) via the free-tier API.
 - **`BaseVectorStoreService` / `QdrantVectorStoreService`** (`connect`, `collection_exists`, `create_collection_if_not_exists`, `store_chunks`, `search`, `close`):
   Connects to Qdrant, provisions collections, performs similarity searches with metadata filtering, and stores chunk vectors with full provenance payloads.
 - **`BaseRetrievalService` / `QdrantRetrievalService`** (`retrieve`):
-  Coordinates query embedding generation, similarity search via `BaseVectorStoreService`, metadata filtering (e.g. `product`, `department`, `document_id`), and output reconstruction into ranked `RetrievedChunk` items.
--**`BaseIngestionService` / `DocumentIngestionService`** (`ingest`, `chunk_document`, `ingest_and_chunk`):
+  Coordinates query embedding generation via `GeminiEmbeddingService`, similarity search via `BaseVectorStoreService`, metadata filtering (e.g. `product`, `department`, `document_id`), and output reconstruction into ranked `RetrievedChunk` items.
+- **`BaseIngestionService` / `DocumentIngestionService`** (`ingest`, `chunk_document`, `ingest_and_chunk`):
   Parses Markdown documents with YAML frontmatter and segments them into discrete, traceable chunks.
 - **`BaseIndexingService` / `DocumentIndexingService`** (`index_documents`, `index_chunks`, `run_indexing_cli`):
   Coordinates end-to-end document and chunk embedding and Qdrant vector indexing with batching, collection lifecycle verification, and idempotent point generation.
-- **`BaseGenerationService` / `GroundedGenerationService`** (`generate`):
-  Synthesizes factually grounded answers from retrieved evidence, enforces strict refusal on insufficient/unsupported information, and constructs verifiable `Citation` objects mapped directly to source chunks.
+- **`BaseGenerationService` / `GeminiGenerationService`** (`generate`):
+  Synthesizes factually grounded answers from retrieved evidence using `gemini-2.5-flash-lite`, enforces strict refusal on insufficient/unsupported information, and constructs verifiable `Citation` objects mapped directly to source chunks.
 - **`BaseQueryOrchestrationService` / `QueryOrchestrationService`** (`query`):
   Coordinates the full end-to-end question-answering workflow (`User Question` → `Semantic Retrieval` → `Retrieved Evidence` → `Grounded LLM Generation` → `Validated Answer + Citations`), adhering to clean architectural boundaries without direct provider coupling.
-
 
 ---
 
@@ -163,7 +162,7 @@ SourceWise RAG implements an **evidence-first generation pipeline** designed to 
 User Question + Retrieved Chunks
                │
                ▼
-   [GroundedGenerationService]
+    [GeminiGenerationService]
                │
                ├── 1. Zero/Low Evidence Check:
                │      If no evidence or filtered out → Refusal ("I couldn't find sufficient...")
@@ -173,7 +172,7 @@ User Question + Retrieved Chunks
                │      - No outside knowledge or speculation
                │      - Structured JSON output with cited chunk_id
                │
-               ├── 3. LLM Generation (OpenAI-compatible)
+               ├── 3. LLM Generation (Google Gemini Free Tier)
                │
                └── 4. Citation Verification & Construction:
                       - Match cited chunk_id against retrieved chunks
@@ -182,7 +181,7 @@ User Question + Retrieved Chunks
                       - Build traceable Citations: document_id, chunk_id, passage, source_path, score
                │
                ▼
-   Grounded Answer Object (query, answer, citations, evidence_status)
+    Grounded Answer Object (query, answer, citations, evidence_status)
 ```
 
 ### Evidence Sufficiency & Refusal Policy
@@ -195,26 +194,33 @@ User Question + Retrieved Chunks
 
 ## Configuration & Environment Variables
 
-All settings are configured via environment variables or a `.env` file using Pydantic Settings.
+All settings are configured via environment variables or a `.env` file using Pydantic Settings. Free-tier development requires zero mandatory spending.
 
 | Variable | Default | Description |
 |---|---|---|
 | `APP_ENV` | `development` | Environment name (`development`, `production`, `test`) |
 | `BACKEND_HOST` | `127.0.0.1` | Host address for FastAPI server |
 | `BACKEND_PORT` | `8000` | Port for FastAPI server |
-| `EMBEDDING_PROVIDER` | `openai` | Embedding provider identifier |
-| `EMBEDDING_API_KEY` | `None` | API key for OpenAI or compatible embedding provider |
-| `EMBEDDING_MODEL` | `text-embedding-3-small` | Model name used for embedding generation |
-| `EMBEDDING_BASE_URL` | `None` | Custom base URL for OpenAI-compatible proxies/local servers |
+| `GEMINI_API_KEY` | `None` | API key for Google Gemini (Free tier available at https://aistudio.google.com/) |
+| `GEMINI_GENERATION_MODEL` | `gemini-2.5-flash-lite` | Generation model name for grounded answer synthesis |
+| `GEMINI_EMBEDDING_MODEL` | `gemini-embedding-2` | Embedding model name for document and query vectorization |
+| `GEMINI_EMBEDDING_DIMENSION` | `1536` | Output embedding dimension size matching vector store |
+| `EMBEDDING_PROVIDER` | `gemini` | Embedding provider identifier |
+| `EMBEDDING_MODEL` | `gemini-embedding-2` | Model name used for embedding generation |
+| `EMBEDDING_DIMENSION` | `1536` | Vector dimensionality |
 | `EMBEDDING_BATCH_SIZE` | `64` | Maximum texts per embedding batch request |
+| `LLM_PROVIDER` | `gemini` | LLM generation provider identifier |
+| `LLM_MODEL` | `gemini-2.5-flash-lite` | Grounded generation model name |
+| `LLM_TEMPERATURE` | `0.0` | Generation sampling temperature (0.0 for deterministic grounding) |
+| `LLM_MAX_TOKENS` | `1024` | Maximum output tokens for answer generation |
+| `MIN_EVIDENCE_SCORE` | `0.0` | Optional retrieval score threshold for pre-filtering evidence |
 | `QDRANT_URL` | `http://localhost:6333` | Endpoint URL of the Qdrant vector database |
 | `QDRANT_API_KEY` | `None` | Optional API key for authenticated Qdrant instances |
 | `QDRANT_COLLECTION_NAME` | `sourcewise_documents` | Target collection name for chunk vectors |
 | `QDRANT_VECTOR_SIZE` | `1536` | Vector dimension size matching embedding model |
 | `QDRANT_DISTANCE` | `Cosine` | Distance metric for similarity (`Cosine`, `Dot`, `Euclid`) |
 | `QDRANT_TIMEOUT` | `10.0` | Connection timeout in seconds |
-| `LLM_PROVIDER` | `openai` | LLM generation provider identifier |
-| `LLM_API_KEY` | `None` | API key for OpenAI or compatible LLM provider |
+_KEY` | `None` | API key for OpenAI or compatible LLM provider |
 | `LLM_MODEL` | `gpt-4o-mini` | Generation model name (e.g. OpenAI, Ollama, LiteLLM) |
 | `LLM_BASE_URL` | `None` | Custom base URL for OpenAI-compatible LLM endpoints |
 | `LLM_TEMPERATURE` | `0.0` | Generation sampling temperature (0.0 for deterministic grounding) |
@@ -330,7 +336,7 @@ Normalized Documents
 Extracted Chunks
         │
         ▼  (in batches, default: 64)
-[BaseEmbeddingService] (OpenAIEmbeddingService or compatible)
+[BaseEmbeddingService] (GeminiEmbeddingService or compatible)
         │   └── embed_texts(texts) -> Batch vector embeddings
         ▼
 Dense Vectors
@@ -383,7 +389,7 @@ Qdrant Vector Database
 import asyncio
 from pathlib import Path
 from app.services.ingestion import DocumentIngestionService
-from app.services.embedding import OpenAIEmbeddingService
+from app.services.embedding import GeminiEmbeddingService
 from app.services.vector_store import QdrantVectorStoreService
 from app.services.indexing import DocumentIndexingService
 
@@ -394,7 +400,7 @@ async def main():
 
     # Initialize indexing pipeline with abstractions
     indexing_service = DocumentIndexingService(
-        embedding_service=OpenAIEmbeddingService(),
+        embedding_service=GeminiEmbeddingService(),
         vector_store_service=QdrantVectorStoreService(),
         chunking_service=ingestion_service,
         batch_size=32,
@@ -437,10 +443,12 @@ When running in **live service mode** (default), the following environment varia
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `EMBEDDING_API_KEY` | **Yes** (live) | `None` | API key for OpenAI or compatible embedding provider |
-| `EMBEDDING_MODEL` | No | `text-embedding-3-small` | Model name for dense vector generation |
+| `GEMINI_API_KEY` | **Yes** (live Gemini) | `None` | API key for Google Gemini free-tier provider (https://aistudio.google.com/) |
+| `EMBEDDING_API_KEY` | Optional | `None` | API key for OpenAI or compatible embedding provider (if using OpenAI) |
+| `EMBEDDING_PROVIDER` | No | `gemini` | Embedding provider identifier (`gemini`, `openai`) |
+| `EMBEDDING_MODEL` | No | `gemini-embedding-2` | Model name for dense vector generation |
+| `EMBEDDING_DIMENSION` | No | `1536` | Vector dimensionality matching the embedding model |
 | `EMBEDDING_BATCH_SIZE`| No | `64` | Maximum chunks per embedding batch request |
-| `EMBEDDING_BASE_URL` | No | `None` | Custom base URL for local/proxy embedding providers (e.g. Ollama, LiteLLM) |
 | `QDRANT_URL` | No | `http://localhost:6333` | Endpoint URL of the Qdrant vector database |
 | `QDRANT_API_KEY` | No | `None` | API key for authenticated Qdrant deployments |
 | `QDRANT_COLLECTION_NAME` | No | `sourcewise_documents` | Target collection name for chunk vectors |
@@ -565,7 +573,8 @@ Copy the example environment file:
 cp .env.example .env
 ```
 
-Set your `EMBEDDING_API_KEY` and customized Qdrant endpoints in `.env` if connecting to live services.
+Set your `GEMINI_API_KEY` (free tier key from [Google AI Studio](https://aistudio.google.com/)) and customized Qdrant endpoints in `.env` if connecting to live services.
+
 
 ### 4. (Optional) Run Local Qdrant for Development
 

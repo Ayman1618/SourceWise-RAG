@@ -141,6 +141,14 @@ class TestServiceInterfaces(unittest.TestCase):
         self.assertIsInstance(generation, BaseGenerationService)
         self.assertIsInstance(indexing, BaseIndexingService)
 
+    def test_gemini_service_exports(self) -> None:
+        """Verify that Gemini services are exported and inherit from base interfaces."""
+        from app.services import GeminiEmbeddingService, GeminiGenerationService
+
+        self.assertTrue(issubclass(GeminiEmbeddingService, BaseEmbeddingService))
+        self.assertTrue(issubclass(GeminiGenerationService, BaseGenerationService))
+
 
 if __name__ == "__main__":
     unittest.main()
+

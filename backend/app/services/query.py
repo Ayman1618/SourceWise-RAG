@@ -7,7 +7,11 @@ from typing import Any
 from app.models.generation import Answer
 from app.models.query import QueryRequest
 from app.models.retrieval import RetrievalQuery
-from app.services.generation import BaseGenerationService, GroundedGenerationService
+from app.services.generation import (
+    BaseGenerationService,
+    GeminiGenerationService,
+    GroundedGenerationService,
+)
 from app.services.retrieval import BaseRetrievalService, QdrantRetrievalService
 
 logger = logging.getLogger(__name__)

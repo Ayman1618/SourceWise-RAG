@@ -1,19 +1,25 @@
-"""Unit and integration tests for grounded answer generation and citation synthesis."""
+"""Unit and integration tests for grounded answer generation and citation synthesis using Google Gemini."""
 
 import json
 import unittest
 from unittest.mock import MagicMock
+
+from google.genai import types
 
 from app.core.config import settings
 from app.models.chunk import Chunk
 from app.models.citation import Citation
 from app.models.generation import Answer, EvidenceStatus
 from app.models.retrieval import RetrievedChunk
-from app.services.generation import BaseGenerationService, GroundedGenerationService
+from app.services.generation import (
+    BaseGenerationService,
+    GeminiGenerationService,
+    GroundedGenerationService,
+)
 
 
 class TestGenerationService(unittest.IsolatedAsyncioTestCase):
-    """Test suite for BaseGenerationService contracts and GroundedGenerationService implementation."""
+    """Test suite for BaseGenerationService contracts and GeminiGenerationService implementation."""
 
     def setUp(self) -> None:
         """Set up test fixtures with sample retrieved chunks."""
@@ -83,28 +89,35 @@ class TestGenerationService(unittest.IsolatedAsyncioTestCase):
     def test_initialization_defaults_and_custom_config(self) -> None:
         """Verify initialization with backend settings defaults and custom overrides."""
         mock_client = MagicMock()
-        default_service = GroundedGenerationService(client=mock_client)
+        default_service = GeminiGenerationService(client=mock_client)
 
-        self.assertEqual(default_service.model, settings.llm_model)
+        self.assertEqual(default_service.model, settings.gemini_generation_model)
         self.assertEqual(default_service.temperature, settings.llm_temperature)
         self.assertEqual(default_service.max_tokens, settings.llm_max_tokens)
         self.assertEqual(default_service.min_evidence_score, settings.min_evidence_score)
 
-        custom_service = GroundedGenerationService(
-            model="custom-llm-model",
+        custom_service = GeminiGenerationService(
+            model="gemini-2.5-flash-lite",
             temperature=0.7,
             max_tokens=512,
             min_evidence_score=0.5,
             client=mock_client,
         )
-        self.assertEqual(custom_service.model, "custom-llm-model")
+        self.assertEqual(custom_service.model, "gemini-2.5-flash-lite")
         self.assertEqual(custom_service.temperature, 0.7)
         self.assertEqual(custom_service.max_tokens, 512)
         self.assertEqual(custom_service.min_evidence_score, 0.5)
 
+    def test_grounded_generation_service_alias_compatibility(self) -> None:
+        """Verify GroundedGenerationService alias works identically to GeminiGenerationService."""
+        mock_client = MagicMock()
+        service = GroundedGenerationService(client=mock_client)
+        self.assertIsInstance(service, GeminiGenerationService)
+        self.assertIsInstance(service, BaseGenerationService)
+
     async def test_blank_query_raises_value_error(self) -> None:
         """Verify generate rejects blank or whitespace queries."""
-        service = GroundedGenerationService(client=MagicMock())
+        service = GeminiGenerationService(client=MagicMock())
 
         with self.assertRaises(ValueError) as ctx:
             await service.generate(query="", evidence=[self.retrieved_chunk_1])
@@ -117,25 +130,25 @@ class TestGenerationService(unittest.IsolatedAsyncioTestCase):
     async def test_zero_evidence_returns_immediate_refusal(self) -> None:
         """Verify zero retrieved evidence returns refusal without invoking LLM."""
         mock_client = MagicMock()
-        service = GroundedGenerationService(client=mock_client)
+        service = GeminiGenerationService(client=mock_client)
 
         answer = await service.generate(
             query="How do I recover PostgreSQL?",
             evidence=[],
         )
 
-        self.assertEqual(answer.answer, GroundedGenerationService.REFUSAL_MESSAGE)
+        self.assertEqual(answer.answer, GeminiGenerationService.REFUSAL_MESSAGE)
         self.assertEqual(answer.citations, [])
         self.assertEqual(answer.evidence, [])
         self.assertEqual(answer.evidence_status, EvidenceStatus.INSUFFICIENT)
         self.assertFalse(answer.has_sufficient_evidence)
         self.assertEqual(answer.confidence_score, 0.0)
-        mock_client.chat.completions.create.assert_not_called()
+        mock_client.models.generate_content.assert_not_called()
 
     async def test_low_score_evidence_filter_returns_refusal(self) -> None:
         """Verify that when min_evidence_score filters all chunks, refusal is returned."""
         mock_client = MagicMock()
-        service = GroundedGenerationService(
+        service = GeminiGenerationService(
             min_evidence_score=0.98,  # Higher than 0.94
             client=mock_client,
         )
@@ -145,10 +158,10 @@ class TestGenerationService(unittest.IsolatedAsyncioTestCase):
             evidence=[self.retrieved_chunk_1],
         )
 
-        self.assertEqual(answer.answer, GroundedGenerationService.REFUSAL_MESSAGE)
+        self.assertEqual(answer.answer, GeminiGenerationService.REFUSAL_MESSAGE)
         self.assertEqual(answer.evidence_status, EvidenceStatus.INSUFFICIENT)
         self.assertFalse(answer.has_sufficient_evidence)
-        mock_client.chat.completions.create.assert_not_called()
+        mock_client.models.generate_content.assert_not_called()
 
     async def test_successful_grounded_answer_single_citation(self) -> None:
         """Verify successful grounded generation with citation linking to source chunk."""
@@ -163,11 +176,11 @@ class TestGenerationService(unittest.IsolatedAsyncioTestCase):
                 }
             ],
         }
-        mock_choice = MagicMock()
-        mock_choice.message.content = json.dumps(llm_payload)
-        mock_client.chat.completions.create.return_value = MagicMock(choices=[mock_choice])
+        mock_response = MagicMock()
+        mock_response.text = json.dumps(llm_payload)
+        mock_client.models.generate_content.return_value = mock_response
 
-        service = GroundedGenerationService(client=mock_client)
+        service = GeminiGenerationService(client=mock_client)
         answer = await service.generate(
             query="How do I promote the PostgreSQL replica?",
             evidence=[self.retrieved_chunk_1],
@@ -189,7 +202,11 @@ class TestGenerationService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(citation.source_path, "docs/ops/postgres_recovery.md")
         self.assertEqual(citation.score, 0.94)
 
-        mock_client.chat.completions.create.assert_called_once()
+        mock_client.models.generate_content.assert_called_once()
+        _, kwargs = mock_client.models.generate_content.call_args
+        self.assertEqual(kwargs["model"], service.model)
+        self.assertIsInstance(kwargs["config"], types.GenerateContentConfig)
+        self.assertEqual(kwargs["config"].response_mime_type, "application/json")
 
     async def test_multiple_citations_and_deduplication(self) -> None:
         """Verify multiple citations from different chunks and deduplication of duplicate cited chunk IDs."""
@@ -212,11 +229,11 @@ class TestGenerationService(unittest.IsolatedAsyncioTestCase):
                 },
             ],
         }
-        mock_choice = MagicMock()
-        mock_choice.message.content = json.dumps(llm_payload)
-        mock_client.chat.completions.create.return_value = MagicMock(choices=[mock_choice])
+        mock_response = MagicMock()
+        mock_response.text = json.dumps(llm_payload)
+        mock_client.models.generate_content.return_value = mock_response
 
-        service = GroundedGenerationService(client=mock_client)
+        service = GeminiGenerationService(client=mock_client)
         answer = await service.generate(
             query="What are the full failover steps?",
             evidence=[self.retrieved_chunk_1, self.retrieved_chunk_2],
@@ -236,17 +253,17 @@ class TestGenerationService(unittest.IsolatedAsyncioTestCase):
             "answer": "I couldn't find sufficient supporting information in the available knowledge base to answer this reliably.",
             "citations": [],
         }
-        mock_choice = MagicMock()
-        mock_choice.message.content = json.dumps(llm_payload)
-        mock_client.chat.completions.create.return_value = MagicMock(choices=[mock_choice])
+        mock_response = MagicMock()
+        mock_response.text = json.dumps(llm_payload)
+        mock_client.models.generate_content.return_value = mock_response
 
-        service = GroundedGenerationService(client=mock_client)
+        service = GeminiGenerationService(client=mock_client)
         answer = await service.generate(
             query="What is the CEO's favorite food?",
             evidence=[self.retrieved_chunk_1],
         )
 
-        self.assertEqual(answer.answer, GroundedGenerationService.REFUSAL_MESSAGE)
+        self.assertEqual(answer.answer, GeminiGenerationService.REFUSAL_MESSAGE)
         self.assertEqual(answer.citations, [])
         self.assertEqual(answer.evidence_status, EvidenceStatus.INSUFFICIENT)
         self.assertFalse(answer.has_sufficient_evidence)
@@ -264,18 +281,18 @@ class TestGenerationService(unittest.IsolatedAsyncioTestCase):
                 }
             ],
         }
-        mock_choice = MagicMock()
-        mock_choice.message.content = json.dumps(llm_payload)
-        mock_client.chat.completions.create.return_value = MagicMock(choices=[mock_choice])
+        mock_response = MagicMock()
+        mock_response.text = json.dumps(llm_payload)
+        mock_client.models.generate_content.return_value = mock_response
 
-        service = GroundedGenerationService(client=mock_client)
+        service = GeminiGenerationService(client=mock_client)
         answer = await service.generate(
             query="Does it use quantum encryption?",
             evidence=[self.retrieved_chunk_1],
         )
 
         # Because all citations were invalid/hallucinated, answer cannot be safely validated
-        self.assertEqual(answer.answer, GroundedGenerationService.REFUSAL_MESSAGE)
+        self.assertEqual(answer.answer, GeminiGenerationService.REFUSAL_MESSAGE)
         self.assertEqual(answer.citations, [])
         self.assertEqual(answer.evidence_status, EvidenceStatus.REFUSED)
         self.assertFalse(answer.has_sufficient_evidence)
@@ -297,11 +314,11 @@ class TestGenerationService(unittest.IsolatedAsyncioTestCase):
                 },
             ],
         }
-        mock_choice = MagicMock()
-        mock_choice.message.content = json.dumps(llm_payload)
-        mock_client.chat.completions.create.return_value = MagicMock(choices=[mock_choice])
+        mock_response = MagicMock()
+        mock_response.text = json.dumps(llm_payload)
+        mock_client.models.generate_content.return_value = mock_response
 
-        service = GroundedGenerationService(client=mock_client)
+        service = GeminiGenerationService(client=mock_client)
         answer = await service.generate(
             query="How to promote?",
             evidence=[self.retrieved_chunk_1],
@@ -315,29 +332,29 @@ class TestGenerationService(unittest.IsolatedAsyncioTestCase):
     async def test_malformed_llm_json_refuses_safely(self) -> None:
         """Verify that malformed JSON from LLM results in safe refusal with REFUSED status."""
         mock_client = MagicMock()
-        mock_choice = MagicMock()
-        mock_choice.message.content = "Not valid JSON output from model"
-        mock_client.chat.completions.create.return_value = MagicMock(choices=[mock_choice])
+        mock_response = MagicMock()
+        mock_response.text = "Not valid JSON output from model"
+        mock_client.models.generate_content.return_value = mock_response
 
-        service = GroundedGenerationService(client=mock_client)
+        service = GeminiGenerationService(client=mock_client)
         answer = await service.generate(
             query="Query",
             evidence=[self.retrieved_chunk_1],
         )
 
-        self.assertEqual(answer.answer, GroundedGenerationService.REFUSAL_MESSAGE)
+        self.assertEqual(answer.answer, GeminiGenerationService.REFUSAL_MESSAGE)
         self.assertEqual(answer.evidence_status, EvidenceStatus.REFUSED)
         self.assertFalse(answer.has_sufficient_evidence)
 
-    async def test_llm_api_failure_raises_exception(self) -> None:
-        """Verify that client/network exceptions during LLM call are propagated."""
+    async def test_gemini_api_failure_raises_exception(self) -> None:
+        """Verify that client/network/rate-limit exceptions during Gemini generation are propagated."""
         mock_client = MagicMock()
-        mock_client.chat.completions.create.side_effect = RuntimeError("OpenAI API connection failed")
+        mock_client.models.generate_content.side_effect = RuntimeError("ResourceExhausted: Gemini free-tier rate limit exceeded")
 
-        service = GroundedGenerationService(client=mock_client)
+        service = GeminiGenerationService(client=mock_client)
         with self.assertRaises(RuntimeError) as ctx:
             await service.generate(query="Query", evidence=[self.retrieved_chunk_1])
-        self.assertIn("OpenAI API connection failed", str(ctx.exception))
+        self.assertIn("ResourceExhausted", str(ctx.exception))
 
     async def test_end_to_end_retrieved_chunk_to_citation_traceability(self) -> None:
         """Integration-style test verifying full traceability chain: RetrievedChunk -> Answer -> Citation -> source Chunk."""
@@ -352,11 +369,11 @@ class TestGenerationService(unittest.IsolatedAsyncioTestCase):
                 }
             ],
         }
-        mock_choice = MagicMock()
-        mock_choice.message.content = json.dumps(llm_payload)
-        mock_client.chat.completions.create.return_value = MagicMock(choices=[mock_choice])
+        mock_response = MagicMock()
+        mock_response.text = json.dumps(llm_payload)
+        mock_client.models.generate_content.return_value = mock_response
 
-        service = GroundedGenerationService(client=mock_client)
+        service = GeminiGenerationService(client=mock_client)
         answer = await service.generate(
             query="How to handle PostgreSQL primary failure?",
             evidence=[self.retrieved_chunk_1],
@@ -380,3 +397,4 @@ class TestGenerationService(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
