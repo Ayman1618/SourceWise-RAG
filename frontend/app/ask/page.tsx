@@ -1,5 +1,10 @@
 "use client";
 
+/**
+ * SourceWise RAG Ask Page Component
+ * Connects the question input interface to the POST /api/v1/query backend API.
+ */
+
 import React, { useState } from "react";
 import { queryRAG, RAGApiError } from "@/lib/api-client";
 import { AnswerResponse, AskUIState } from "@/lib/types/rag";

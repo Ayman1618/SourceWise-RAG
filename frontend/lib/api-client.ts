@@ -1,11 +1,12 @@
 /**
- * RAG API Client Service
+ * SourceWise RAG Frontend API Client
+ * Connects the Ask user interface to the live backend query API.
  *
- * Target Backend Endpoint Contract:
- * - Method: POST
- * - Endpoint: ${API_CONFIG.baseUrl}/api/v1/query
- * - Request Payload: { query: string, top_k?: number, filters?: Record<string, unknown> }
- * - Response Contract: AnswerResponse (Answer model in backend/app/models/generation.py)
+ * Backend Endpoint Contract:
+ * - Endpoint: POST /api/v1/query
+ * - Base URL: Configurable via NEXT_PUBLIC_API_BASE_URL (defaults to http://localhost:8000)
+ * - Request Schema: QueryRequest { query: string, top_k?: number, filters?: Record<string, unknown> }
+ * - Response Schema: AnswerResponse { query, answer, citations, evidence, confidence_score, evidence_status, has_sufficient_evidence, metadata }
  */
 
 import { API_CONFIG } from "./config";
