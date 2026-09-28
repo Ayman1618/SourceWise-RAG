@@ -410,18 +410,110 @@ if __name__ == "__main__":
 
 ### CLI Indexing Runner
 
-Run the indexing pipeline directly from the command line:
+The repository provides a simple, production-ready CLI command to discover sample documents, extract metadata, segment content into traceable chunks, batch-generate embeddings, and idempotently upsert vectors into Qdrant.
+
+#### 1. Running Document Indexing
+
+Run the indexing pipeline using either the Python module entrypoint or the standalone runner script:
 
 ```bash
-# Offline execution (in-memory Qdrant + stub embeddings, zero external APIs required)
-python run_indexing.py --in-memory
+# Recommended: Run via Python module
+python -m app.index
 
-# Live indexing of sample documents (requires running Qdrant and EMBEDDING_API_KEY in .env)
+# Alternative entrypoints:
+python -m app.cli.index
 python run_indexing.py
 
-# Custom directory and batch size
-python run_indexing.py path/to/markdown/docs --collection my_collection --batch-size 32
+# Offline execution (in-memory Qdrant + SHA-256 stub embeddings, zero external services or API keys required):
+python -m app.index --in-memory
+
+# Custom document directory, collection name, and batch size:
+python -m app.index path/to/markdown/docs --collection custom_kb --batch-size 32
 ```
+
+#### 2. Required Environment Variables
+
+When running in **live service mode** (default), the following environment variables are read from `.env`:
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `EMBEDDING_API_KEY` | **Yes** (live) | `None` | API key for OpenAI or compatible embedding provider |
+| `EMBEDDING_MODEL` | No | `text-embedding-3-small` | Model name for dense vector generation |
+| `EMBEDDING_BATCH_SIZE`| No | `64` | Maximum chunks per embedding batch request |
+| `EMBEDDING_BASE_URL` | No | `None` | Custom base URL for local/proxy embedding providers (e.g. Ollama, LiteLLM) |
+| `QDRANT_URL` | No | `http://localhost:6333` | Endpoint URL of the Qdrant vector database |
+| `QDRANT_API_KEY` | No | `None` | API key for authenticated Qdrant deployments |
+| `QDRANT_COLLECTION_NAME` | No | `sourcewise_documents` | Target collection name for chunk vectors |
+| `QDRANT_VECTOR_SIZE` | No | `1536` | Vector dimensionality matching the embedding model |
+| `QDRANT_DISTANCE` | No | `Cosine` | Distance metric for vector similarity (`Cosine`, `Dot`, `Euclid`) |
+
+> **Note:** In offline mode (`--in-memory`), **no environment variables or API keys are required**. The pipeline executes completely offline in memory.
+
+#### 3. Expected Output
+
+Executing the command outputs real-time progress followed by a structured metrics summary:
+
+```text
+Starting document indexing pipeline (in-memory / offline mode)...
+
+--- Indexing Summary ---
+Documents processed:  3
+Chunks created:       10
+Embeddings generated: 10
+Vectors upserted:     10
+Failures:             0
+
+Sample point ID:      eae050f9-8e83-5eaa-83fb-f2c84da00fff
+Sample chunk ID:      sample-api-rate-limits#chunk_0
+Sample parent doc:    sample-api-rate-limits
+Sample text snippet:  # API Rate Limits and Quota Management
+
+## Summary
+This document specifies the rate limiting policie...
+```
+
+If any documents fail chunking, embedding, or storage, the command reports structured failure details:
+```text
+Failures:             1
+Failure details:
+  - Stage: storage [doc: doc_incident_runbook] | Error: Vector store connection refused
+```
+
+#### 4. Idempotency Guarantee
+
+Point IDs stored in Qdrant are generated deterministically as `UUIDv5` hashes derived from `{document_id}#chunk_{chunk_index}`. Running the indexing command repeatedly with the same documents updates existing points in-place without creating duplicate vector points.
+
+#### 5. How to Verify Indexed Documents
+
+1. **Verify via Qdrant REST API:**
+   ```bash
+   # Check collection information
+   curl -X GET http://localhost:6333/collections/sourcewise_documents
+
+   # Count stored points
+   curl -X POST http://localhost:6333/collections/sourcewise_documents/points/count \
+     -H "Content-Type: application/json" \
+     -d '{"exact": true}'
+   ```
+
+2. **Verify via Grounded RAG Query API (`POST /api/v1/query`):**
+   Test with questions supported by the demo knowledge base:
+   ```bash
+   # Test Question 1: Troubleshooting login failures
+   curl -X POST http://127.0.0.1:8000/api/v1/query \
+     -H "Content-Type: application/json" \
+     -d '{"query": "How do I troubleshoot login failures?", "top_k": 3}'
+
+   # Test Question 2: API rate limits
+   curl -X POST http://127.0.0.1:8000/api/v1/query \
+     -H "Content-Type: application/json" \
+     -d '{"query": "What are the API rate limits?", "top_k": 3}'
+
+   # Test Question 3: Product authentication
+   curl -X POST http://127.0.0.1:8000/api/v1/query \
+     -H "Content-Type: application/json" \
+     -d '{"query": "How does authentication work?", "top_k": 3}'
+   ```
 
 ---
 

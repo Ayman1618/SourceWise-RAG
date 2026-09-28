@@ -50,6 +50,16 @@ class IndexingResult(BaseModel):
         ge=0,
         description="Number of chunks successfully embedded and persisted to vector store",
     )
+    embeddings_generated: int = Field(
+        default=0,
+        ge=0,
+        description="Total number of dense vector embeddings successfully generated",
+    )
+    vectors_upserted: int = Field(
+        default=0,
+        ge=0,
+        description="Total number of vector points successfully upserted into the vector database",
+    )
     point_ids: list[str] = Field(
         default_factory=list,
         description="List of deterministic vector point IDs stored in the vector database",
@@ -62,6 +72,14 @@ class IndexingResult(BaseModel):
         default_factory=list,
         description="Structured failure objects detailing stage and context of failures",
     )
+
+    def model_post_init(self, __context: Any) -> None:
+        """Synchronize chunks_indexed and vectors_upserted if only one was explicitly set."""
+        super().model_post_init(__context)
+        if self.vectors_upserted > 0 and self.chunks_indexed == 0:
+            self.chunks_indexed = self.vectors_upserted
+        elif self.chunks_indexed > 0 and self.vectors_upserted == 0:
+            self.vectors_upserted = self.chunks_indexed
 
     @property
     def is_success(self) -> bool:

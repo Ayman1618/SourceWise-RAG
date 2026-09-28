@@ -8,6 +8,8 @@ from app.services.indexing import (
     BaseIndexingService,
     DocumentIndexingService,
     IndexingError,
+    execute_indexing_cli,
+    find_sample_documents_dir,
     run_indexing_cli,
 )
 from app.services.ingestion import (
@@ -49,6 +51,8 @@ __all__ = [
     "QdrantVectorStoreService",
     "QueryOrchestrationService",
     "VectorSearchResult",
+    "execute_indexing_cli",
+    "find_sample_documents_dir",
     "run_indexing_cli",
     "run_ingestion_cli",
 ]

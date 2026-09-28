@@ -170,6 +170,16 @@ class TestRetrievedChunkModel(unittest.TestCase):
         self.assertEqual(retrieved.document_id, "doc_001")
         self.assertEqual(retrieved.chunk_id, "doc_001#chunk_0")
         self.assertEqual(retrieved.text, chunk.text)
+        self.assertEqual(retrieved.metadata, chunk.metadata)
+        self.assertEqual(retrieved.title, chunk.metadata.get("title"))
+        self.assertEqual(retrieved.source_type, chunk.metadata.get("source_type"))
+        self.assertEqual(retrieved.product, chunk.metadata.get("product"))
+        self.assertEqual(retrieved.version, chunk.metadata.get("version"))
+        self.assertEqual(retrieved.department, chunk.metadata.get("department"))
+        self.assertEqual(retrieved.owner, chunk.metadata.get("owner"))
+        self.assertEqual(retrieved.access_level, chunk.metadata.get("access_level"))
+        self.assertEqual(retrieved.language, chunk.metadata.get("language"))
+        self.assertEqual(retrieved.source_path, chunk.metadata.get("source_path"))
 
     def test_invalid_retrieved_chunk_rank(self) -> None:
         """Verify that rank must be >= 1."""
@@ -333,6 +343,8 @@ class TestIndexingModels(unittest.TestCase):
         self.assertEqual(result.documents_processed, 0)
         self.assertEqual(result.chunks_created, 0)
         self.assertEqual(result.chunks_indexed, 0)
+        self.assertEqual(result.embeddings_generated, 0)
+        self.assertEqual(result.vectors_upserted, 0)
         self.assertEqual(result.point_ids, [])
         self.assertEqual(result.errors, [])
         self.assertEqual(result.failures, [])
@@ -350,6 +362,8 @@ class TestIndexingModels(unittest.TestCase):
             documents_processed=2,
             chunks_created=5,
             chunks_indexed=5,
+            embeddings_generated=5,
+            vectors_upserted=5,
             point_ids=["p1", "p2", "p3", "p4", "p5"],
             errors=["Warning: doc_bad chunking issue"],
             failures=[failure],
@@ -357,6 +371,8 @@ class TestIndexingModels(unittest.TestCase):
         self.assertEqual(result.documents_processed, 2)
         self.assertEqual(result.chunks_created, 5)
         self.assertEqual(result.chunks_indexed, 5)
+        self.assertEqual(result.embeddings_generated, 5)
+        self.assertEqual(result.vectors_upserted, 5)
         self.assertEqual(len(result.point_ids), 5)
         self.assertFalse(result.is_success)
         self.assertTrue(result.has_failures)
