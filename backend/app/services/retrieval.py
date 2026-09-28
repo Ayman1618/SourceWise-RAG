@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from app.models.retrieval import RetrievalQuery, RetrievedChunk
-from app.services.embedding import BaseEmbeddingService, OpenAIEmbeddingService
+from app.services.embedding import BaseEmbeddingService, GeminiEmbeddingService
 from app.services.vector_store import BaseVectorStoreService, QdrantVectorStoreService
 
 
@@ -46,11 +46,12 @@ class QdrantRetrievalService(BaseRetrievalService):
         """Initialize the Qdrant retrieval service via dependency injection.
 
         Args:
-            embedding_service: Embedding generation service (defaults to OpenAIEmbeddingService()).
+            embedding_service: Embedding generation service (defaults to GeminiEmbeddingService()).
             vector_store_service: Vector store service (defaults to QdrantVectorStoreService()).
         """
-        self.embedding_service = embedding_service or OpenAIEmbeddingService()
+        self.embedding_service = embedding_service or GeminiEmbeddingService()
         self.vector_store_service = vector_store_service or QdrantVectorStoreService()
+
 
     def _extract_query_and_params(
         self,

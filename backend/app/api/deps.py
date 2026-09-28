@@ -2,7 +2,7 @@
 
 from fastapi import Depends
 
-from app.services.generation import BaseGenerationService, GroundedGenerationService
+from app.services.generation import BaseGenerationService, GeminiGenerationService
 from app.services.query import (
     BaseQueryOrchestrationService,
     QueryOrchestrationService,
@@ -17,7 +17,8 @@ def get_retrieval_service() -> BaseRetrievalService:
 
 def get_generation_service() -> BaseGenerationService:
     """Provide the default grounded answer generation service."""
-    return GroundedGenerationService()
+    return GeminiGenerationService()
+
 
 
 def get_query_orchestration_service(
