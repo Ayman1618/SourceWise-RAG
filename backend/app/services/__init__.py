@@ -1,9 +1,17 @@
 """Pipeline service interfaces and implementations for SourceWise RAG."""
 
-from app.services.chunking import ChunkingService
-from app.services.embedding import BaseEmbeddingService, OpenAIEmbeddingService
-from app.services.generation import BaseGenerationService, GroundedGenerationService
 from app.models.indexing import IndexingFailure, IndexingResult
+from app.services.chunking import ChunkingService
+from app.services.embedding import (
+    BaseEmbeddingService,
+    GeminiEmbeddingService,
+    OpenAIEmbeddingService,
+)
+from app.services.generation import (
+    BaseGenerationService,
+    GeminiGenerationService,
+    GroundedGenerationService,
+)
 from app.services.indexing import (
     BaseIndexingService,
     DocumentIndexingService,
@@ -38,6 +46,8 @@ __all__ = [
     "ChunkingService",
     "DocumentIndexingService",
     "DocumentIngestionService",
+    "GeminiEmbeddingService",
+    "GeminiGenerationService",
     "GroundedGenerationService",
     "IndexingError",
     "IndexingFailure",
@@ -52,3 +62,4 @@ __all__ = [
     "run_indexing_cli",
     "run_ingestion_cli",
 ]
+

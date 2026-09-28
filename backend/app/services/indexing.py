@@ -12,7 +12,7 @@ from app.models.chunk import Chunk
 from app.models.document import Document
 from app.models.indexing import IndexingFailure, IndexingResult
 from app.services.chunking import ChunkingService
-from app.services.embedding import BaseEmbeddingService, OpenAIEmbeddingService
+from app.services.embedding import BaseEmbeddingService, GeminiEmbeddingService
 from app.services.ingestion import BaseIngestionService, DocumentIngestionService
 from app.services.vector_store import BaseVectorStoreService, QdrantVectorStoreService
 
@@ -107,12 +107,12 @@ class DocumentIndexingService(BaseIndexingService):
         """Initialize DocumentIndexingService with required abstractions.
 
         Args:
-            embedding_service: Text embedding service (defaults to OpenAIEmbeddingService()).
+            embedding_service: Text embedding service (defaults to GeminiEmbeddingService()).
             vector_store_service: Vector store service (defaults to QdrantVectorStoreService()).
             chunking_service: Chunking/ingestion service (defaults to DocumentIngestionService()).
             batch_size: Default batch size for embedding and upsert operations.
         """
-        self.embedding_service = embedding_service or OpenAIEmbeddingService()
+        self.embedding_service = embedding_service or GeminiEmbeddingService()
         self.vector_store_service = vector_store_service or QdrantVectorStoreService()
         self.chunking_service = chunking_service or DocumentIngestionService()
         self.batch_size = batch_size
@@ -445,7 +445,7 @@ def run_indexing_cli(
             vector_size=16,
         )
     else:
-        emb_service = embedding_service or OpenAIEmbeddingService()
+        emb_service = embedding_service or GeminiEmbeddingService()
         vs_service = vector_store_service or QdrantVectorStoreService(
             collection_name=collection_name or settings.qdrant_collection_name,
         )

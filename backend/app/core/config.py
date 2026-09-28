@@ -15,10 +15,17 @@ class Settings(BaseSettings):
     backend_host: str = "127.0.0.1"
     backend_port: int = 8000
 
+    # Google Gemini Free-Tier Configuration
+    gemini_api_key: str | None = None
+    gemini_generation_model: str = "gemini-2.5-flash-lite"
+    gemini_embedding_model: str = "gemini-embedding-2"
+    gemini_embedding_dimension: int = 1536
+
     # Embedding Provider Configuration
-    embedding_provider: str = "openai"
+    embedding_provider: str = "gemini"
     embedding_api_key: str | None = None
-    embedding_model: str = "text-embedding-3-small"
+    embedding_model: str = "gemini-embedding-2"
+    embedding_dimension: int = 1536
     embedding_base_url: str | None = None
     embedding_batch_size: int = 64
 
@@ -31,17 +38,15 @@ class Settings(BaseSettings):
     qdrant_timeout: float = 10.0
 
     # LLM / Grounded Generation Configuration
-    llm_provider: str = "openai"
+    llm_provider: str = "gemini"
     llm_api_key: str | None = None
-    llm_model: str = "gpt-4o-mini"
+    llm_model: str = "gemini-2.5-flash-lite"
     llm_base_url: str | None = None
     llm_temperature: float = 0.0
     llm_max_tokens: int = 1024
     min_evidence_score: float = 0.0
 
     model_config = SettingsConfigDict(
-
-
         env_file=(".env", "../.env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
@@ -50,3 +55,4 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+

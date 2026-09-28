@@ -16,14 +16,15 @@ SourceWise RAG combines semantic retrieval with grounded generation to answer qu
 
 Ingest → Chunk → Embed → Index → Retrieve → Generate → Cite
 
-## Tech Stack
+## Tech Stack & Architecture
 
-- Python / TypeScript
-- OpenAI-compatible API
-- Embeddings
-- Qdrant
-- RAG
-- Next.js
+SourceWise RAG is built for zero mandatory API spending for development and demo usage:
+- **Embeddings:** Google Gemini (`gemini-embedding-2`, 1536 dimensions) via Google GenAI free tier
+- **Generation:** Google Gemini (`gemini-2.5-flash-lite`) for grounded answer synthesis & structured citations
+- **Vector Database:** [Qdrant](https://qdrant.tech/) for dense vector similarity search with metadata filtering
+- **Backend:** Python 3.12, FastAPI, Pydantic v2
+- **Frontend:** Next.js, React, TypeScript
+
 
 ## Project Structure
 

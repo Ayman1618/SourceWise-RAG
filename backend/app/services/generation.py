@@ -1,10 +1,12 @@
-"""Pipeline interface and implementation for grounded answer generation and citation synthesis."""
+"""Pipeline interface and Google Gemini implementation for grounded answer generation and citation synthesis."""
 
+import inspect
 import json
 from abc import ABC, abstractmethod
 from typing import Any
 
-from openai import OpenAI
+from google import genai
+from google.genai import types
 
 from app.core.config import settings
 from app.models.citation import Citation
@@ -36,8 +38,8 @@ class BaseGenerationService(ABC):
         raise NotImplementedError
 
 
-class GroundedGenerationService(BaseGenerationService):
-    """Production service for generating factually grounded answers and verified citations."""
+class GeminiGenerationService(BaseGenerationService):
+    """Evidence-grounded answer generation service using Google Gemini (free-tier compatible)."""
 
     REFUSAL_MESSAGE: str = (
         "I couldn't find sufficient supporting information in the available knowledge base to answer this reliably."
@@ -47,41 +49,37 @@ class GroundedGenerationService(BaseGenerationService):
         self,
         api_key: str | None = None,
         model: str | None = None,
-        base_url: str | None = None,
         temperature: float | None = None,
         max_tokens: int | None = None,
         min_evidence_score: float | None = None,
-        client: OpenAI | None = None,
+        client: Any | None = None,
         **kwargs: Any,
     ) -> None:
-        """Initialize the grounded generation service.
+        """Initialize the Gemini grounded generation service.
 
         Args:
-            api_key: API key for the OpenAI-compatible provider (defaults to settings.llm_api_key).
-            model: Model identifier (defaults to settings.llm_model).
-            base_url: Base URL for OpenAI-compatible endpoint (defaults to settings.llm_base_url).
+            api_key: API key for Google Gemini (defaults to settings.gemini_api_key / settings.llm_api_key).
+            model: Model identifier (defaults to settings.gemini_generation_model or settings.llm_model).
             temperature: Sampling temperature for generation (defaults to settings.llm_temperature).
             max_tokens: Maximum output tokens (defaults to settings.llm_max_tokens).
             min_evidence_score: Optional retrieval score threshold for pre-filtering low quality evidence.
-            client: Optional pre-configured OpenAI client instance (useful for mocking/testing).
+            client: Optional pre-configured genai.Client instance (useful for mocking/testing).
             **kwargs: Additional options forwarded to the client.
         """
-        self.model = model or settings.llm_model
+        self.model = model or settings.gemini_generation_model or settings.llm_model
         self.temperature = temperature if temperature is not None else settings.llm_temperature
         self.max_tokens = max_tokens or settings.llm_max_tokens
         self.min_evidence_score = (
             min_evidence_score if min_evidence_score is not None else settings.min_evidence_score
         )
-        self._api_key = api_key or settings.llm_api_key
-        self._base_url = base_url or settings.llm_base_url
+        self._api_key = api_key or settings.gemini_api_key or settings.llm_api_key
 
         if client is not None:
             self.client = client
         else:
             effective_key = self._api_key or "mock-key-not-set"
-            self.client = OpenAI(
+            self.client = genai.Client(
                 api_key=effective_key,
-                base_url=self._base_url,
                 **kwargs,
             )
 
@@ -199,26 +197,32 @@ class GroundedGenerationService(BaseGenerationService):
         # 3. Construct grounding prompt
         system_prompt, user_prompt = self._build_prompts(query, effective_evidence)
 
-        # 4. Invoke LLM with structured JSON output
+        # 4. Invoke Gemini with structured JSON output
         model_name = kwargs.get("model", self.model)
         temp = kwargs.get("temperature", self.temperature)
         max_toks = kwargs.get("max_tokens", self.max_tokens)
 
-        response = self.client.chat.completions.create(
-            model=model_name,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+        config = types.GenerateContentConfig(
+            system_instruction=system_prompt,
             temperature=temp,
-            max_tokens=max_toks,
-            response_format={"type": "json_object"},
+            max_output_tokens=max_toks,
+            response_mime_type="application/json",
         )
 
-        response_content = response.choices[0].message.content or "{}"
+        res = self.client.models.generate_content(
+            model=model_name,
+            contents=user_prompt,
+            config=config,
+        )
+        if inspect.iscoroutine(res):
+            response = await res
+        else:
+            response = res
+
+        response_content = getattr(response, "text", None) or "{}"
         try:
             parsed = json.loads(response_content)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, TypeError):
             # If model response cannot be parsed as JSON, safely refuse
             return Answer(
                 query=query,
@@ -317,3 +321,8 @@ class GroundedGenerationService(BaseGenerationService):
                 "citation_count": len(valid_citations),
             },
         )
+
+
+# Backward-compatible alias
+GroundedGenerationService = GeminiGenerationService
+

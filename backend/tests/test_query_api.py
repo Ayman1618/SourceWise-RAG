@@ -180,7 +180,7 @@ class TestQueryAPI(unittest.TestCase):
     def test_generation_failure_handled(self) -> None:
         """Verify generation service failure returns 500 without leaking stack traces."""
         self.mock_retrieval_service.retrieve.return_value = [self.sample_retrieved]
-        self.mock_generation_service.generate.side_effect = Exception("OpenAI API key sk-proj-supersecret invalid")
+        self.mock_generation_service.generate.side_effect = Exception("Gemini API key AIzaSy-supersecret invalid")
 
         app.dependency_overrides[get_retrieval_service] = lambda: self.mock_retrieval_service
         app.dependency_overrides[get_generation_service] = lambda: self.mock_generation_service
@@ -191,7 +191,8 @@ class TestQueryAPI(unittest.TestCase):
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         data = response.json()
         self.assertEqual(data["detail"], "An error occurred while processing the query. Please try again later.")
-        self.assertNotIn("sk-proj", response.text)
+        self.assertNotIn("AIzaSy", response.text)
+
 
     def test_openapi_documentation_schema(self) -> None:
         """Verify OpenAPI schema publishes /api/v1/query with correct request and response schemas."""
