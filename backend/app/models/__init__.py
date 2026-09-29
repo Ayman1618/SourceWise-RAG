@@ -4,7 +4,7 @@ from app.models.chunk import Chunk
 from app.models.citation import Citation
 from app.models.document import Document
 from app.models.generation import Answer, EvidenceStatus
-from app.models.health import HealthResponse
+from app.models.health import HealthResponse, ReadinessResponse
 from app.models.indexing import IndexingFailure, IndexingResult
 from app.models.query import QueryRequest
 from app.models.retrieval import RetrievalQuery, RetrievalResult, RetrievedChunk
@@ -19,8 +19,10 @@ __all__ = [
     "IndexingFailure",
     "IndexingResult",
     "QueryRequest",
+    "ReadinessResponse",
     "RetrievalQuery",
     "RetrievalResult",
     "RetrievedChunk",
 ]
+
 

@@ -1,0 +1,29 @@
+# Python / virtual environment artifacts
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local environment & secret files
+.env
+.env.*
+!.env.example
+
+# Git repository
+.git/
+.gitignore
+
+# OS & IDE metadata
+.DS_Store
+.idea/
+.vscode/
+
+# Build and test logs / temporary data
+*.log
+scratch/

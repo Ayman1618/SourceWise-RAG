@@ -199,8 +199,10 @@ All settings are configured via environment variables or a `.env` file using Pyd
 | Variable | Default | Description |
 |---|---|---|
 | `APP_ENV` | `development` | Environment name (`development`, `production`, `test`) |
-| `BACKEND_HOST` | `127.0.0.1` | Host address for FastAPI server |
-| `BACKEND_PORT` | `8000` | Port for FastAPI server |
+| `BACKEND_HOST` | `0.0.0.0` | Host address for FastAPI server (default `0.0.0.0` for container readiness) |
+| `BACKEND_PORT` | `8000` | Port for FastAPI server (used when `PORT` is not set) |
+| `PORT` | `None` | Deployment platform port override (e.g. Render, Railway, Fly.io, Cloud Run) |
+| `CORS_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | Allowed CORS origins (comma-separated or JSON list) |
 | `GEMINI_API_KEY` | `None` | API key for Google Gemini (Free tier available at https://aistudio.google.com/) |
 | `GEMINI_GENERATION_MODEL` | `gemini-2.5-flash-lite` | Generation model name for grounded answer synthesis |
 | `GEMINI_EMBEDDING_MODEL` | `gemini-embedding-2` | Embedding model name for document and query vectorization |
@@ -214,18 +216,12 @@ All settings are configured via environment variables or a `.env` file using Pyd
 | `LLM_TEMPERATURE` | `0.0` | Generation sampling temperature (0.0 for deterministic grounding) |
 | `LLM_MAX_TOKENS` | `1024` | Maximum output tokens for answer generation |
 | `MIN_EVIDENCE_SCORE` | `0.0` | Optional retrieval score threshold for pre-filtering evidence |
-| `QDRANT_URL` | `http://localhost:6333` | Endpoint URL of the Qdrant vector database |
+| `QDRANT_URL` | `http://localhost:6333` | Endpoint URL of the Qdrant vector database (or Qdrant Cloud cluster URL) |
 | `QDRANT_API_KEY` | `None` | Optional API key for authenticated Qdrant instances |
 | `QDRANT_COLLECTION_NAME` | `sourcewise_documents` | Target collection name for chunk vectors |
 | `QDRANT_VECTOR_SIZE` | `1536` | Vector dimension size matching embedding model |
 | `QDRANT_DISTANCE` | `Cosine` | Distance metric for similarity (`Cosine`, `Dot`, `Euclid`) |
 | `QDRANT_TIMEOUT` | `10.0` | Connection timeout in seconds |
-_KEY` | `None` | API key for OpenAI or compatible LLM provider |
-| `LLM_MODEL` | `gpt-4o-mini` | Generation model name (e.g. OpenAI, Ollama, LiteLLM) |
-| `LLM_BASE_URL` | `None` | Custom base URL for OpenAI-compatible LLM endpoints |
-| `LLM_TEMPERATURE` | `0.0` | Generation sampling temperature (0.0 for deterministic grounding) |
-| `LLM_MAX_TOKENS` | `1024` | Maximum output tokens for answer generation |
-| `MIN_EVIDENCE_SCORE` | `0.0` | Optional retrieval score threshold for pre-filtering evidence |
 
 
 ---
@@ -616,15 +612,32 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 python -m app.main
 ```
 
-The server will start at: `http://127.0.0.1:8000`
+### Option C: Running with Docker (Containerized)
+
+```bash
+# Build Docker image
+docker build -t sourcewise-rag-backend backend/
+
+# Run container with environment variables
+docker run -d \
+  --name sourcewise-rag-backend \
+  -p 8000:8000 \
+  -e GEMINI_API_KEY="your-gemini-key" \
+  -e QDRANT_URL="http://host.docker.internal:6333" \
+  -e CORS_ORIGINS="http://localhost:3000" \
+  sourcewise-rag-backend
+```
+
+For complete cloud deployment instructions (Render, Railway, Fly.io, etc.), refer to the [Deployment Guide](../docs/deployment.md).
 
 ---
 
 ## API Endpoints
 
-### 1. Health Check
+### 1. Health & Readiness Endpoints
 
-Verifies server status without external dependencies.
+#### Liveness Probe (`GET /health`)
+Verifies that the FastAPI process is responsive without external dependencies (ideal for platform liveness probes).
 
 - **URL:** `GET /health`
 - **Response Format:** `application/json`
@@ -635,9 +648,30 @@ Verifies server status without external dependencies.
   }
   ```
 
+#### Readiness Probe (`GET /health/ready`)
+Verifies core service readiness including vector database connectivity (Qdrant). Returns HTTP 200 when ready, HTTP 503 if dependencies are unreachable.
+
+- **URL:** `GET /health/ready`
+- **Response Format:** `application/json`
+- **Example Response (Ready - HTTP 200):**
+  ```json
+  {
+    "status": "ready",
+    "database": "connected",
+    "details": {
+      "collection": "sourcewise_documents",
+      "collection_exists": true
+    }
+  }
+  ```
+
 **Verify using cURL:**
 ```bash
+# Liveness
 curl -X GET http://127.0.0.1:8000/health
+
+# Readiness
+curl -X GET http://127.0.0.1:8000/health/ready
 ```
 
 ### 2. Grounded RAG Query

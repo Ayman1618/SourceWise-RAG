@@ -8,6 +8,12 @@ from app.services.query import (
     QueryOrchestrationService,
 )
 from app.services.retrieval import BaseRetrievalService, QdrantRetrievalService
+from app.services.vector_store import BaseVectorStoreService, QdrantVectorStoreService
+
+
+def get_vector_store_service() -> BaseVectorStoreService:
+    """Provide the default vector database service."""
+    return QdrantVectorStoreService()
 
 
 def get_retrieval_service() -> BaseRetrievalService:
@@ -20,7 +26,6 @@ def get_generation_service() -> BaseGenerationService:
     return GeminiGenerationService()
 
 
-
 def get_query_orchestration_service(
     retrieval_service: BaseRetrievalService = Depends(get_retrieval_service),
     generation_service: BaseGenerationService = Depends(get_generation_service),
@@ -30,3 +35,4 @@ def get_query_orchestration_service(
         retrieval_service=retrieval_service,
         generation_service=generation_service,
     )
+
