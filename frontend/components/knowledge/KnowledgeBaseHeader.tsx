@@ -1,5 +1,5 @@
 import React from "react";
-import { BookOpen, Database, ShieldCheck } from "lucide-react";
+import { BookOpen, Database, ShieldCheck, ArrowRight, Layers } from "lucide-react";
 
 interface KnowledgeBaseHeaderProps {
   totalDocs: number;
@@ -15,14 +15,14 @@ export function KnowledgeBaseHeader({ totalDocs }: KnowledgeBaseHeaderProps) {
               <BookOpen className="w-4 h-4" />
             </div>
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
-              Knowledge Base
+              Knowledge Base Catalog
             </h1>
-            <span className="text-[11px] font-mono font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
-              Repository Catalog
+            <span className="text-[11px] font-mono font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 uppercase tracking-wider">
+              Enterprise Sources
             </span>
           </div>
           <p className="mt-1.5 text-sm text-slate-600 max-w-2xl leading-relaxed">
-            Enterprise knowledge sources, specifications, and runbooks indexed for grounded RAG retrieval and citation verification.
+            Explore indexed internal documentation, technical specifications, and operations runbooks available for RAG retrieval and citation grounding.
           </p>
         </div>
 
@@ -43,6 +43,21 @@ export function KnowledgeBaseHeader({ totalDocs }: KnowledgeBaseHeaderProps) {
               <p className="font-semibold text-slate-900 text-sm">Grounding Active</p>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Evidence-First Architecture Workflow Indicator */}
+      <div className="bg-slate-50 rounded-md border border-slate-200 px-4 py-2.5 flex items-center justify-between text-xs text-slate-600 flex-wrap gap-2">
+        <div className="flex items-center space-x-2 font-medium">
+          <Layers className="w-4 h-4 text-brand-900" />
+          <span>Evidence-First RAG Flow:</span>
+        </div>
+        <div className="flex items-center space-x-2 font-mono text-[11px]">
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-200 text-slate-800 font-semibold">1. Knowledge Source</span>
+          <ArrowRight className="w-3 h-3 text-slate-400" />
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-200 text-slate-800 font-semibold">2. Qdrant Chunk Retrieval</span>
+          <ArrowRight className="w-3 h-3 text-slate-400" />
+          <span className="bg-white px-2 py-0.5 rounded border border-slate-200 text-slate-800 font-semibold">3. Grounded Answer + Citation</span>
         </div>
       </div>
     </div>

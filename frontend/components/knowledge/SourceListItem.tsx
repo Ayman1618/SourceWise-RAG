@@ -3,7 +3,7 @@ import Link from "next/link";
 import { KnowledgeDocument } from "@/lib/knowledge-data";
 import { SourceTypeBadge } from "./SourceTypeBadge";
 import { SourceMetadata } from "./SourceMetadata";
-import { ArrowRight, FileText } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
 interface SourceListItemProps {
   document: KnowledgeDocument;
@@ -35,6 +35,7 @@ export function SourceListItem({ document }: SourceListItemProps) {
             version={document.version}
             lastUpdated={document.lastUpdated}
             department={document.department}
+            accessLevel={document.accessLevel}
             chunkCount={document.chunkCount}
           />
         </div>

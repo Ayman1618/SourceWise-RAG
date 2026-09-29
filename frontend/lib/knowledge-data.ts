@@ -5,6 +5,13 @@ export type SourceType =
   | "Operations Runbook"
   | "Regulatory Standard";
 
+export type AccessLevel =
+  | "Internal Support"
+  | "Restricted Security"
+  | "Public Developer"
+  | "Operations Only"
+  | "Compliance Officer";
+
 export interface KnowledgeDocument {
   id: string;
   slug: string;
@@ -17,6 +24,7 @@ export interface KnowledgeDocument {
   lastUpdated: string;
   department: string;
   author: string;
+  accessLevel: AccessLevel;
   tags: string[];
   chunkCount: number;
 }
@@ -34,6 +42,7 @@ export const KNOWLEDGE_DOCUMENTS: KnowledgeDocument[] = [
     lastUpdated: "2026-09-15",
     department: "Support Operations",
     author: "Elena Rostova",
+    accessLevel: "Internal Support",
     tags: ["login", "authentication", "lockout", "mfa", "troubleshooting", "session"],
     chunkCount: 14,
     content: `
@@ -71,6 +80,7 @@ Session tokens expire after 8 hours of inactivity or 24 hours total duration.
     lastUpdated: "2026-09-12",
     department: "Security Architecture",
     author: "Marcus Vance",
+    accessLevel: "Restricted Security",
     tags: ["oauth2", "oidc", "jwt", "iam", "security", "tokens"],
     chunkCount: 22,
     content: `
@@ -105,6 +115,7 @@ API Gateway services MUST validate incoming Bearer tokens using RS256 public key
     lastUpdated: "2026-09-10",
     department: "Platform Engineering",
     author: "Siddharth Nair",
+    accessLevel: "Public Developer",
     tags: ["api", "rate-limits", "throttling", "quotas", "headers", "gateway"],
     chunkCount: 18,
     content: `
@@ -141,6 +152,7 @@ All API responses include standard rate limit status headers:
     lastUpdated: "2026-09-08",
     department: "Site Reliability Engineering",
     author: "Sarah Jenkins",
+    accessLevel: "Operations Only",
     tags: ["database", "postgres", "failover", "sre", "runbook", "high-availability"],
     chunkCount: 16,
     content: `
@@ -182,6 +194,7 @@ Check replication lag metrics and confirm zero split-brain scenarios before decl
     lastUpdated: "2026-09-01",
     department: "Information Governance",
     author: "David Chen",
+    accessLevel: "Compliance Officer",
     tags: ["compliance", "privacy", "gdpr", "retention", "pii", "audit"],
     chunkCount: 12,
     content: `
@@ -209,6 +222,14 @@ export const ALL_PRODUCTS = Array.from(
   new Set(KNOWLEDGE_DOCUMENTS.map((doc) => doc.product))
 );
 
+export const ALL_DEPARTMENTS = Array.from(
+  new Set(KNOWLEDGE_DOCUMENTS.map((doc) => doc.department))
+);
+
+export const ALL_VERSIONS = Array.from(
+  new Set(KNOWLEDGE_DOCUMENTS.map((doc) => doc.version))
+);
+
 export const ALL_SOURCE_TYPES: SourceType[] = [
   "Support Documentation",
   "Engineering Specification",
@@ -218,17 +239,23 @@ export const ALL_SOURCE_TYPES: SourceType[] = [
 ];
 
 export function searchKnowledgeBase(
-  query: string,
+  query: string = "",
   productFilter: string = "",
-  sourceTypeFilter: string = ""
+  sourceTypeFilter: string = "",
+  departmentFilter: string = "",
+  versionFilter: string = ""
 ): KnowledgeDocument[] {
   const q = query.trim().toLowerCase();
 
   return KNOWLEDGE_DOCUMENTS.filter((doc) => {
     const matchesProduct = !productFilter || doc.product === productFilter;
     const matchesType = !sourceTypeFilter || doc.sourceType === sourceTypeFilter;
+    const matchesDepartment = !departmentFilter || doc.department === departmentFilter;
+    const matchesVersion = !versionFilter || doc.version === versionFilter;
 
-    if (!matchesProduct || !matchesType) return false;
+    if (!matchesProduct || !matchesType || !matchesDepartment || !matchesVersion) {
+      return false;
+    }
     if (!q) return true;
 
     return (
@@ -239,6 +266,8 @@ export function searchKnowledgeBase(
       doc.product.toLowerCase().includes(q) ||
       doc.sourceType.toLowerCase().includes(q) ||
       doc.department.toLowerCase().includes(q) ||
+      doc.author.toLowerCase().includes(q) ||
+      doc.accessLevel.toLowerCase().includes(q) ||
       doc.tags.some((tag) => tag.toLowerCase().includes(q))
     );
   });
@@ -247,7 +276,10 @@ export function searchKnowledgeBase(
 export function getKnowledgeDocumentById(
   idOrSlug: string
 ): KnowledgeDocument | undefined {
+  if (!idOrSlug) return undefined;
   return KNOWLEDGE_DOCUMENTS.find(
-    (doc) => doc.id.toLowerCase() === idOrSlug.toLowerCase() || doc.slug.toLowerCase() === idOrSlug.toLowerCase()
+    (doc) =>
+      doc.id.toLowerCase() === idOrSlug.toLowerCase() ||
+      doc.slug.toLowerCase() === idOrSlug.toLowerCase()
   );
 }
