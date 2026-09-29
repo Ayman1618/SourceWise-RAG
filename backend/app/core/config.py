@@ -12,8 +12,12 @@ class Settings(BaseSettings):
         "Backend API for SourceWise RAG — an evidence-first enterprise knowledge assistant."
     )
     app_env: str = "development"
-    backend_host: str = "127.0.0.1"
+    backend_host: str = "0.0.0.0"
     backend_port: int = 8000
+    port: int | None = None  # Dynamic cloud platform PORT override (e.g. Render, Railway, Fly.io)
+
+    # CORS Configuration: comma-separated list or JSON array of allowed origins
+    cors_origins: str | list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
     # Google Gemini Free-Tier Configuration
     gemini_api_key: str | None = None
@@ -45,6 +49,31 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.0
     llm_max_tokens: int = 1024
     min_evidence_score: float = 0.0
+
+    @property
+    def effective_port(self) -> int:
+        """Resolve effective port prioritizing cloud platform PORT environment variable."""
+        return self.port if self.port is not None else self.backend_port
+
+    @property
+    def allowed_cors_origins(self) -> list[str]:
+        """Parse and normalize configured CORS origins into a clean list of strings."""
+        if isinstance(self.cors_origins, list):
+            raw_list = self.cors_origins
+        elif isinstance(self.cors_origins, str):
+            trimmed = self.cors_origins.strip()
+            if trimmed.startswith("[") and trimmed.endswith("]"):
+                import json
+                try:
+                    raw_list = json.loads(trimmed)
+                except Exception:
+                    raw_list = [s.strip() for s in trimmed.strip("[]").split(",") if s.strip()]
+            else:
+                raw_list = [s.strip() for s in trimmed.split(",") if s.strip()]
+        else:
+            raw_list = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+        return [str(origin).strip().rstrip("/") for origin in raw_list if str(origin).strip()]
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env"),

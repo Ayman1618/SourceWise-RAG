@@ -28,11 +28,21 @@ SourceWise RAG is built for zero mandatory API spending for development and demo
 
 ## Project Structure
 
-- `backend/` — Python backend, document ingestion, RAG services, retrieval logic, and API endpoints.
+- `backend/` — Python backend, document ingestion, RAG services, retrieval logic, Dockerfile, and API endpoints.
 - `frontend/` — Next.js and TypeScript web application.
 - `data/sample-documents/` — Non-sensitive sample documents for local development and testing.
 - `evaluation/` — Retrieval, grounding, citation, refusal, and evaluation resources.
-- `docs/` — Architecture documentation, technical decisions, and development documentation.
+- `docs/` — Architecture documentation, technical decisions, and [Deployment Guide](docs/deployment.md).
+
+## Deployment & Production Readiness
+
+SourceWise RAG backend is containerized and ready for zero-cost demo deployment on free-tier platforms (e.g. Render, Railway, Fly.io, Hugging Face Spaces):
+- **Containerization**: Production-grade `Dockerfile` listening on dynamic `$PORT` and `0.0.0.0`.
+- **Zero Paid Dependencies**: Powered by Google Gemini free tier (`gemini-2.5-flash-lite`, `gemini-embedding-2`) + Qdrant Cloud free tier (1GB cluster).
+- **Probes**: Separate liveness probe (`GET /health`) and dependency readiness probe (`GET /health/ready`).
+- **Configuration**: Fully environment-driven CORS and service settings.
+
+For step-by-step instructions, see the **[Deployment Guide](docs/deployment.md)**.
 
 ## Team
 
