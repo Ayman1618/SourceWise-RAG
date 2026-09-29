@@ -5,6 +5,8 @@ import {
   KNOWLEDGE_DOCUMENTS,
   ALL_PRODUCTS,
   ALL_SOURCE_TYPES,
+  ALL_DEPARTMENTS,
+  ALL_VERSIONS,
   searchKnowledgeBase,
 } from "@/lib/knowledge-data";
 import { KnowledgeBaseHeader } from "@/components/knowledge/KnowledgeBaseHeader";
@@ -15,15 +17,25 @@ export default function KnowledgeBasePage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [productFilter, setProductFilter] = useState("");
   const [sourceTypeFilter, setSourceTypeFilter] = useState("");
+  const [departmentFilter, setDepartmentFilter] = useState("");
+  const [versionFilter, setVersionFilter] = useState("");
 
   const filteredDocuments = useMemo(() => {
-    return searchKnowledgeBase(searchQuery, productFilter, sourceTypeFilter);
-  }, [searchQuery, productFilter, sourceTypeFilter]);
+    return searchKnowledgeBase(
+      searchQuery,
+      productFilter,
+      sourceTypeFilter,
+      departmentFilter,
+      versionFilter
+    );
+  }, [searchQuery, productFilter, sourceTypeFilter, departmentFilter, versionFilter]);
 
   const handleResetFilters = () => {
     setSearchQuery("");
     setProductFilter("");
     setSourceTypeFilter("");
+    setDepartmentFilter("");
+    setVersionFilter("");
   };
 
   return (
@@ -37,8 +49,14 @@ export default function KnowledgeBasePage() {
         setProductFilter={setProductFilter}
         sourceTypeFilter={sourceTypeFilter}
         setSourceTypeFilter={setSourceTypeFilter}
+        departmentFilter={departmentFilter}
+        setDepartmentFilter={setDepartmentFilter}
+        versionFilter={versionFilter}
+        setVersionFilter={setVersionFilter}
         productsList={ALL_PRODUCTS}
         sourceTypesList={ALL_SOURCE_TYPES}
+        departmentsList={ALL_DEPARTMENTS}
+        versionsList={ALL_VERSIONS}
         onResetFilters={handleResetFilters}
       />
 

@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "npx ts-node --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\"}\" tests/ask-api.test.ts"
+    "test": "npx ts-node --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\"}\" tests/ask-api.test.ts && npx ts-node --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\"}\" tests/knowledge-base.test.ts"
   },
   "dependencies": {
     "clsx": "^2.1.1",
