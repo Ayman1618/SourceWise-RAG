@@ -136,5 +136,104 @@ class TestCORSIntegration(unittest.TestCase):
             )
 
 
+class TestSecurityAndContractIntegrity(unittest.TestCase):
+    """Verify production security hardening and query contract integrity."""
+
+    def setUp(self) -> None:
+        self.app = create_app()
+        self.client = TestClient(self.app)
+
+    def test_query_preserves_citations_and_evidence_metadata(self) -> None:
+        """Verify that POST /api/v1/query retains grounded answer, citations, evidence, and status."""
+        from app.api.deps import get_query_orchestration_service
+        from app.models.generation import Answer, Citation, RetrievedChunk
+        from app.models.retrieval import Chunk
+        from app.services.query import BaseQueryOrchestrationService
+
+        mock_query_service = MagicMock(spec=BaseQueryOrchestrationService)
+        mock_chunk = Chunk(
+            chunk_id="doc_auth#chunk_0",
+            document_id="doc_auth",
+            text="Verify session token expiration or IP flags.",
+            chunk_index=0,
+            token_count=10,
+            metadata={"title": "Auth Guide", "source_path": "docs/auth.md"},
+        )
+        mock_retrieved_chunk = RetrievedChunk(
+            chunk=mock_chunk,
+            score=0.95,
+            rank=1,
+            retrieval_method="dense",
+        )
+        mock_citation = Citation(
+            citation_id="cite_1",
+            document_id="doc_auth",
+            chunk_id="doc_auth#chunk_0",
+            source_title="Auth Guide",
+            passage="Verify session token expiration or IP flags.",
+            source_path="docs/auth.md",
+            score=0.95,
+        )
+        mock_answer = Answer(
+            query="How to verify login?",
+            answer="Check session token expiration [cite_1].",
+            citations=[mock_citation],
+            evidence=[mock_retrieved_chunk],
+            confidence_score=0.95,
+            evidence_status="sufficient",
+            has_sufficient_evidence=True,
+            metadata={"model": "gemini-2.5-flash-lite", "citation_count": 1},
+        )
+
+        async def _mock_query(*args, **kwargs):
+            return mock_answer
+
+        mock_query_service.query.side_effect = _mock_query
+        self.app.dependency_overrides[get_query_orchestration_service] = lambda: mock_query_service
+
+        payload = {"query": "How to verify login?", "top_k": 3}
+        response = self.client.post("/api/v1/query", json=payload)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+
+        self.assertEqual(data["query"], "How to verify login?")
+        self.assertEqual(data["evidence_status"], "sufficient")
+        self.assertTrue(data["has_sufficient_evidence"])
+        self.assertEqual(len(data["citations"]), 1)
+        self.assertEqual(data["citations"][0]["chunk_id"], "doc_auth#chunk_0")
+        self.assertEqual(len(data["evidence"]), 1)
+        self.assertEqual(data["evidence"][0]["chunk"]["document_id"], "doc_auth")
+
+        self.app.dependency_overrides.clear()
+
+    def test_internal_server_error_masks_stack_traces_and_secrets(self) -> None:
+        """Verify that unhandled internal exceptions do not leak stack traces or secret keys to clients."""
+        from app.api.deps import get_query_orchestration_service
+        from app.services.query import BaseQueryOrchestrationService
+
+        mock_query_service = MagicMock(spec=BaseQueryOrchestrationService)
+
+        async def _failing_query(*args, **kwargs):
+            raise RuntimeError("Database connection string postgres://user:SECRET_PASS@host:5432 failed")
+
+        mock_query_service.query.side_effect = _failing_query
+        self.app.dependency_overrides[get_query_orchestration_service] = lambda: mock_query_service
+
+        payload = {"query": "Test error masking", "top_k": 3}
+        response = self.client.post("/api/v1/query", json=payload)
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        data = response.json()
+
+        self.assertIn("detail", data)
+        self.assertEqual(
+            data["detail"],
+            "An error occurred while processing the query. Please try again later.",
+        )
+        self.assertNotIn("SECRET_PASS", str(data))
+        self.assertNotIn("RuntimeError", str(data))
+
+        self.app.dependency_overrides.clear()
+
+
 if __name__ == "__main__":
     unittest.main()

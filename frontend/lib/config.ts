@@ -8,10 +8,11 @@ export const API_CONFIG = {
    * Environment variable: NEXT_PUBLIC_API_BASE_URL (or NEXT_PUBLIC_API_URL)
    * Default fallback: http://localhost:8000
    */
-  baseUrl:
+  baseUrl: (
     process.env.NEXT_PUBLIC_API_BASE_URL ||
     process.env.NEXT_PUBLIC_API_URL ||
-    "http://localhost:8000",
+    "http://localhost:8000"
+  ).replace(/\/+$/, ""),
 
   /**
    * RAG Query Endpoint Path (POST /api/v1/query)
