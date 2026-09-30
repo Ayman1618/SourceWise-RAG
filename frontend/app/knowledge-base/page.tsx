@@ -1,5 +1,10 @@
 "use client";
 
+/**
+ * SourceWise RAG Knowledge Base Catalog Page Component
+ * Renders enterprise document catalog, search, and multi-criteria filters.
+ */
+
 import React, { useState, useMemo } from "react";
 import {
   KNOWLEDGE_DOCUMENTS,
