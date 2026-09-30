@@ -36,13 +36,14 @@ SourceWise RAG is built for zero mandatory API spending for development and demo
 
 ## Deployment & Production Readiness
 
-SourceWise RAG backend is containerized and ready for zero-cost demo deployment on free-tier platforms (e.g. Render, Railway, Fly.io, Hugging Face Spaces):
-- **Containerization**: Production-grade `Dockerfile` listening on dynamic `$PORT` and `0.0.0.0`.
+SourceWise RAG is fully containerized and production-ready for zero-cost demo deployment on free-tier platforms:
 - **Zero Paid Dependencies**: Powered by Google Gemini free tier (`gemini-2.5-flash-lite`, `gemini-embedding-2`) + Qdrant Cloud free tier (1GB cluster).
-- **Probes**: Separate liveness probe (`GET /health`) and dependency readiness probe (`GET /health/ready`).
-- **Configuration**: Fully environment-driven CORS and service settings.
+- **Backend Container**: Production-grade `Dockerfile` listening on `0.0.0.0` with dynamic `$PORT` support.
+- **Frontend Configuration**: Environment-driven `NEXT_PUBLIC_API_BASE_URL` without hardcoded URLs.
+- **Health Probes**: Isolated liveness probe (`GET /health`) and database readiness probe (`GET /health/ready`).
+- **Smoke Testing**: Built-in verification script (`python scripts/smoke_test.py --base-url <url>`).
 
-For step-by-step instructions, see the **[Deployment Guide](docs/deployment.md)**.
+For complete step-by-step instructions, see the **[Production Deployment Guide](docs/deployment.md)**.
 
 ## Team
 
