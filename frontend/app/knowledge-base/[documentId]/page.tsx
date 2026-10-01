@@ -1,3 +1,8 @@
+/**
+ * SourceWise RAG Document Detail Page Component
+ * Renders full document text preview, provenance metadata, and Ask CTA.
+ */
+
 import React from "react";
 import Link from "next/link";
 import { getKnowledgeDocumentById, KNOWLEDGE_DOCUMENTS } from "@/lib/knowledge-data";
