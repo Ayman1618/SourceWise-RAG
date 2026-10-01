@@ -43,7 +43,44 @@ SourceWise RAG is fully containerized and production-ready for zero-cost demo de
 - **Health Probes**: Isolated liveness probe (`GET /health`) and database readiness probe (`GET /health/ready`).
 - **Smoke Testing**: Built-in verification script (`python scripts/smoke_test.py --base-url <url>`).
 
-For complete step-by-step instructions, see the **[Production Deployment Guide](docs/deployment.md)**.
+## Quickstart: Document Indexing & Running
+
+### 1. Configure Credentials
+Create a `.env` file in `backend/` or repo root:
+```env
+GEMINI_API_KEY=your_google_ai_studio_api_key
+QDRANT_URL=http://localhost:6333  # or your Qdrant Cloud URL
+QDRANT_API_KEY=your_qdrant_api_key_if_cloud
+QDRANT_COLLECTION_NAME=sourcewise_documents
+```
+
+### 2. Run Document Indexing
+```bash
+# Production indexing command (Live Gemini + Qdrant):
+python backend/run_indexing.py
+
+# Dry-run mode (Preview parsing & chunking without API calls):
+python backend/run_indexing.py --dry-run
+
+# Offline / In-memory mode (Zero API keys or external services required):
+python backend/run_indexing.py --in-memory
+```
+
+### 3. Run the Backend Application
+```bash
+cd backend
+source .venv/bin/activate
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### 4. Query the Indexed Knowledge Base
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/query \
+  -H "Content-Type: application/json" \
+  -d '{"query": "How do I troubleshoot login failures?", "top_k": 3}'
+```
+
+For complete step-by-step instructions, see the **[Production Deployment Guide](docs/deployment.md)** and **[Backend Documentation](backend/README.md)**.
 
 ## Team
 

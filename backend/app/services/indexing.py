@@ -17,11 +17,28 @@ from app.services.ingestion import BaseIngestionService, DocumentIngestionServic
 from app.services.vector_store import BaseVectorStoreService, QdrantVectorStoreService
 
 
+import re
+
+def sanitize_error_message(message: str) -> str:
+    """Sanitize sensitive credentials, tokens, or API keys from error messages."""
+    if not message:
+        return ""
+    sanitized = re.sub(r"AIza[0-9A-Za-z-_]{35}", "[REDACTED_API_KEY]", str(message))
+    sanitized = re.sub(
+        r"(api[-_]?key|key|token|password|secret)[\s:=]+['\"]?([\w-]+)['\"]?",
+        r"\1=[REDACTED]",
+        sanitized,
+        flags=re.IGNORECASE,
+    )
+    sanitized = re.sub(r"(Bearer\s+)[\w\.-]+", r"\1[REDACTED]", sanitized, flags=re.IGNORECASE)
+    return sanitized
+
+
 class IndexingError(Exception):
     """Raised when document or chunk indexing encounters an unrecoverable failure."""
 
     def __init__(self, message: str, result: IndexingResult | None = None) -> None:
-        super().__init__(message)
+        super().__init__(sanitize_error_message(message))
         self.result = result
 
 
@@ -42,7 +59,7 @@ class BaseIndexingService(ABC):
 
         Args:
             documents: Normalized Document instance or list of Document instances.
-            **kwargs: Additional indexing configurations (e.g. collection_name, batch_size).
+            **kwargs: Additional indexing configurations (e.g. collection_name, batch_size, dry_run).
 
         Returns:
             IndexingResult: Structured indexing result with metrics, point IDs, and errors.
@@ -79,6 +96,7 @@ class DocumentIndexingService(BaseIndexingService):
     - Idempotent point indexing via deterministic UUIDs preserving provenance.
     - Full metadata preservation across document, chunk, and vector layers.
     - Structured result reporting with document, chunk, point, and error metrics.
+    - Dry-run mode to inspect discovered documents and chunks without external calls.
     """
 
     REQUIRED_METADATA_FIELDS: tuple[str, ...] = (
@@ -177,6 +195,7 @@ class DocumentIndexingService(BaseIndexingService):
         collection_name: str | None = None,
         batch_size: int | None = None,
         raise_on_error: bool = False,
+        dry_run: bool = False,
         **kwargs: Any,
     ) -> IndexingResult:
         """Index one or more normalized documents into the vector store.
@@ -185,14 +204,16 @@ class DocumentIndexingService(BaseIndexingService):
         1. Receive normalized Document instances.
         2. Segment documents into traceable Chunks via the chunking service.
         3. Ensure complete metadata preservation across all required provenance fields.
-        4. Delegate chunks to index_chunks for batch embedding and vector upsert.
-        5. Return a structured IndexingResult with counts, point IDs, and failure tracking.
+        4. If dry_run is True, return preview counts without invoking Gemini or Qdrant.
+        5. Otherwise, delegate chunks to index_chunks for batch embedding and vector upsert.
+        6. Return a structured IndexingResult with counts, point IDs, and failure tracking.
 
         Args:
             documents: Normalized Document instance or list of Document instances.
             collection_name: Target vector collection name.
             batch_size: Batch size override for embedding and upsert.
             raise_on_error: If True, raises IndexingError on first failure instead of recording it in result.
+            dry_run: If True, executes parsing and chunking but skips Gemini embedding and Qdrant upsert.
             **kwargs: Additional parameters forwarded to chunker or vector store.
 
         Returns:
@@ -201,6 +222,7 @@ class DocumentIndexingService(BaseIndexingService):
         """
         if not documents:
             return IndexingResult(
+                documents_discovered=0,
                 documents_processed=0,
                 chunks_created=0,
                 chunks_indexed=0,
@@ -214,6 +236,7 @@ class DocumentIndexingService(BaseIndexingService):
         doc_list = [documents] if isinstance(documents, Document) else list(documents)
         if not doc_list:
             return IndexingResult(
+                documents_discovered=0,
                 documents_processed=0,
                 chunks_created=0,
                 chunks_indexed=0,
@@ -243,22 +266,23 @@ class DocumentIndexingService(BaseIndexingService):
                     all_chunks.extend(chunks)
                 documents_processed += 1
             except Exception as exc:
-                err_msg = f"Failed to chunk document '{doc.document_id}': {exc}"
+                sanitized_msg = sanitize_error_message(f"Failed to chunk document '{doc.document_id}': {exc}")
                 failure = IndexingFailure(
                     document_id=doc.document_id,
                     stage="chunking",
-                    error=err_msg,
+                    error=sanitized_msg,
                 )
-                errors.append(err_msg)
+                errors.append(sanitized_msg)
                 failures.append(failure)
                 if raise_on_error:
-                    raise IndexingError(err_msg) from exc
+                    raise IndexingError(sanitized_msg) from exc
 
         chunks_created = len(all_chunks)
-        if not all_chunks:
+        if not all_chunks or dry_run:
             return IndexingResult(
+                documents_discovered=len(doc_list),
                 documents_processed=documents_processed,
-                chunks_created=0,
+                chunks_created=chunks_created,
                 chunks_indexed=0,
                 embeddings_generated=0,
                 vectors_upserted=0,
@@ -282,19 +306,20 @@ class DocumentIndexingService(BaseIndexingService):
             embeddings_generated = len(all_chunks)
             vectors_upserted = len(point_ids)
         except Exception as exc:
-            err_msg = f"Indexing failed during embedding or vector storage: {exc}"
+            sanitized_msg = sanitize_error_message(f"Indexing failed during embedding or vector storage: {exc}")
             failure = IndexingFailure(
                 stage="storage",
-                error=err_msg,
+                error=sanitized_msg,
             )
-            errors.append(err_msg)
+            errors.append(sanitized_msg)
             failures.append(failure)
             if raise_on_error:
                 if isinstance(exc, (ValueError, IndexingError)):
                     raise
-                raise IndexingError(err_msg) from exc
+                raise IndexingError(sanitized_msg) from exc
 
         return IndexingResult(
+            documents_discovered=len(doc_list),
             documents_processed=documents_processed,
             chunks_created=chunks_created,
             chunks_indexed=chunks_indexed,
@@ -364,9 +389,10 @@ class DocumentIndexingService(BaseIndexingService):
             try:
                 vectors = self.embedding_service.embed_texts(texts)
             except Exception as exc:
-                if isinstance(exc, (ValueError, IndexingError)):
-                    raise
-                raise IndexingError(f"Embedding generation failed: {exc}") from exc
+                sanitized_msg = sanitize_error_message(f"Embedding generation failed: {exc}")
+                if isinstance(exc, ValueError):
+                    raise ValueError(sanitized_msg) from exc
+                raise IndexingError(sanitized_msg) from exc
 
             # 2. Parity check between chunks and vectors
             if len(vectors) != len(batch_chunks):
@@ -383,9 +409,10 @@ class DocumentIndexingService(BaseIndexingService):
                         vector_size=len(vectors[0]),
                     )
                 except Exception as exc:
-                    if isinstance(exc, (ValueError, IndexingError)):
-                        raise
-                    raise IndexingError(f"Failed to create/verify collection: {exc}") from exc
+                    sanitized_msg = sanitize_error_message(f"Failed to create/verify collection: {exc}")
+                    if isinstance(exc, ValueError):
+                        raise ValueError(sanitized_msg) from exc
+                    raise IndexingError(sanitized_msg) from exc
 
             # 4. Store chunk vectors and complete metadata in vector store
             try:
@@ -395,9 +422,10 @@ class DocumentIndexingService(BaseIndexingService):
                     collection_name=collection_name,
                 )
             except Exception as exc:
-                if isinstance(exc, (ValueError, IndexingError)):
-                    raise
-                raise IndexingError(f"Vector store upsert failed: {exc}") from exc
+                sanitized_msg = sanitize_error_message(f"Vector store upsert failed: {exc}")
+                if isinstance(exc, ValueError):
+                    raise ValueError(sanitized_msg) from exc
+                raise IndexingError(sanitized_msg) from exc
 
             all_point_ids.extend(point_ids)
 
@@ -452,6 +480,7 @@ class IndexingCLIResult(tuple):
         self.chunks = chunks
         self.point_ids = point_ids
         self.result = result or IndexingResult(
+            documents_discovered=len(documents),
             documents_processed=len(documents),
             chunks_created=len(chunks),
             chunks_indexed=len(point_ids),
@@ -466,9 +495,11 @@ def run_indexing_cli(
     collection_name: str | None = None,
     batch_size: int | None = None,
     in_memory: bool = False,
+    dry_run: bool = False,
     embedding_service: BaseEmbeddingService | None = None,
     vector_store_service: BaseVectorStoreService | None = None,
     raise_on_error: bool = True,
+    quiet: bool = False,
 ) -> IndexingCLIResult:
     """Synchronous CLI helper to ingest, chunk, embed, and index documents.
 
@@ -477,9 +508,11 @@ def run_indexing_cli(
         collection_name: Target vector collection name.
         batch_size: Batch size for embeddings and upserts.
         in_memory: If True, uses an in-memory Qdrant client and stub embeddings for offline execution.
+        dry_run: If True, parses and chunks documents without generating embeddings or storing vectors.
         embedding_service: Optional custom BaseEmbeddingService.
         vector_store_service: Optional custom BaseVectorStoreService.
         raise_on_error: Whether to raise an exception on error (defaults to True).
+        quiet: Whether to suppress progress reporting.
 
     Returns:
         IndexingCLIResult: Subclass of tuple(documents, chunks, point_ids) with .result attribute.
@@ -488,6 +521,9 @@ def run_indexing_cli(
     import hashlib
 
     target_dir = find_sample_documents_dir(directory_path)
+
+    if not quiet:
+        print(f"Discovering documents in: {target_dir}")
 
     ingestion_service = DocumentIngestionService()
 
@@ -526,15 +562,52 @@ def run_indexing_cli(
 
     async def _execute() -> IndexingCLIResult:
         documents = await ingestion_service.ingest(target_dir)
+        if not quiet:
+            print(f"Discovered and parsed {len(documents)} document(s):")
+            for doc in documents:
+                print(f"  - [{doc.document_id}] '{doc.title}' (source: {doc.source_path or 'inline'})")
+
         all_chunks: list[Chunk] = []
         for doc in documents:
             chunks = await ingestion_service.chunk_document(doc)
             all_chunks.extend(chunks)
+
+        if not quiet:
+            print(f"Chunked documents into {len(all_chunks)} chunk(s).")
+
+        if dry_run:
+            if not quiet:
+                print("[DRY RUN] Skipping Gemini embedding generation and Qdrant vector upsert.")
+            result = IndexingResult(
+                documents_discovered=len(documents),
+                documents_processed=len(documents),
+                chunks_created=len(all_chunks),
+                chunks_indexed=0,
+                embeddings_generated=0,
+                vectors_upserted=0,
+                point_ids=[],
+                errors=[],
+                failures=[],
+            )
+            return IndexingCLIResult(
+                documents=documents,
+                chunks=all_chunks,
+                point_ids=[],
+                result=result,
+            )
+
+        if not quiet:
+            target_col = collection_name or getattr(settings, "qdrant_collection_name", "sourcewise_documents")
+            emb_model = getattr(emb_service, "model", "gemini-embedding-2")
+            print(f"Generating dense embeddings using Gemini ({emb_model})...")
+            print(f"Upserting vector points into Qdrant collection '{target_col}'...")
+
         result = await indexing_service.index_documents(
             documents=documents,
             collection_name=collection_name,
             batch_size=batch_size,
             raise_on_error=raise_on_error,
+            dry_run=dry_run,
         )
         return IndexingCLIResult(
             documents=documents,
@@ -552,7 +625,7 @@ def execute_indexing_cli(args_list: list[str] | None = None) -> None:
     import sys
 
     parser = argparse.ArgumentParser(
-        description="Index documents into Qdrant vector database."
+        description="Index documents into Qdrant vector database using Gemini embeddings."
     )
     parser.add_argument(
         "directory",
@@ -563,13 +636,18 @@ def execute_indexing_cli(args_list: list[str] | None = None) -> None:
     parser.add_argument(
         "--collection",
         default=None,
-        help="Target Qdrant collection name.",
+        help="Target Qdrant collection name (defaults to configured QDRANT_COLLECTION_NAME).",
     )
     parser.add_argument(
         "--batch-size",
         type=int,
         default=None,
         help="Batch size for embedding generation and upsert.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Discover, parse, and chunk documents without calling Gemini API or Qdrant vector store.",
     )
     parser.add_argument(
         "--in-memory",
@@ -584,7 +662,13 @@ def execute_indexing_cli(args_list: list[str] | None = None) -> None:
 
     args = parser.parse_args(args_list)
 
-    mode_label = "in-memory / offline mode" if args.in_memory else "live service mode"
+    if args.dry_run:
+        mode_label = "DRY RUN mode (no API/DB calls)"
+    elif args.in_memory:
+        mode_label = "in-memory / offline mode"
+    else:
+        mode_label = "live service mode (Gemini + Qdrant)"
+
     if not args.quiet:
         print(f"Starting document indexing pipeline ({mode_label})...")
 
@@ -594,21 +678,29 @@ def execute_indexing_cli(args_list: list[str] | None = None) -> None:
             collection_name=args.collection,
             batch_size=args.batch_size,
             in_memory=args.in_memory,
+            dry_run=args.dry_run,
             raise_on_error=False,
+            quiet=args.quiet,
         )
     except Exception as exc:
-        print(f"Error during indexing: {exc}", file=sys.stderr)
+        sanitized = sanitize_error_message(str(exc))
+        print(f"Error during indexing: {sanitized}", file=sys.stderr)
         sys.exit(1)
 
     result = cli_result.result
     chunks = cli_result.chunks
     point_ids = cli_result.point_ids
 
-    print("\n--- Indexing Summary ---")
+    header_label = "--- Dry Run Summary ---" if args.dry_run else "--- Indexing Summary ---"
+    print(f"\n{header_label}")
     print(f"Documents processed:  {result.documents_processed}")
     print(f"Chunks created:       {result.chunks_created}")
-    print(f"Embeddings generated: {result.embeddings_generated}")
-    print(f"Vectors upserted:     {result.vectors_upserted}")
+    if args.dry_run:
+        print(f"Embeddings generated: 0 (dry run)")
+        print(f"Vectors indexed:      0 (dry run)")
+    else:
+        print(f"Embeddings generated: {result.embeddings_generated}")
+        print(f"Vectors indexed:      {result.vectors_upserted}")
     print(f"Failures:             {len(result.failures)}")
 
     if result.failures:
@@ -617,12 +709,20 @@ def execute_indexing_cli(args_list: list[str] | None = None) -> None:
             doc_str = f" [doc: {f.document_id}]" if f.document_id else ""
             print(f"  - Stage: {f.stage}{doc_str} | Error: {f.error}")
 
-    if point_ids and not args.quiet:
-        print(f"\nSample point ID:      {point_ids[0]}")
-        if chunks:
-            print(f"Sample chunk ID:      {chunks[0].chunk_id}")
-            print(f"Sample parent doc:    {chunks[0].document_id}")
-            print(f"Sample text snippet:  {chunks[0].text[:100]}...")
+    if not args.quiet:
+        if args.dry_run and chunks:
+            print(f"\nSample chunk preview:")
+            print(f"  Chunk ID:      {chunks[0].chunk_id}")
+            print(f"  Document ID:   {chunks[0].document_id}")
+            print(f"  Title:         {chunks[0].metadata.get('title', 'N/A')}")
+            print(f"  Token Count:   {chunks[0].token_count}")
+            print(f"  Text preview:  {chunks[0].text[:120]}...")
+        elif point_ids:
+            print(f"\nSample point ID:      {point_ids[0]}")
+            if chunks:
+                print(f"Sample chunk ID:      {chunks[0].chunk_id}")
+                print(f"Sample parent doc:    {chunks[0].document_id}")
+                print(f"Sample text snippet:  {chunks[0].text[:100]}...")
 
     if result.has_failures and not result.is_success:
         sys.exit(1)
