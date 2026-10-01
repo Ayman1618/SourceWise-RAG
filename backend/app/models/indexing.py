@@ -35,6 +35,11 @@ class IndexingResult(BaseModel):
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
+    documents_discovered: int = Field(
+        default=0,
+        ge=0,
+        description="Total number of documents discovered in source location",
+    )
     documents_processed: int = Field(
         default=0,
         ge=0,
@@ -74,12 +79,19 @@ class IndexingResult(BaseModel):
     )
 
     def model_post_init(self, __context: Any) -> None:
-        """Synchronize chunks_indexed and vectors_upserted if only one was explicitly set."""
+        """Synchronize chunks_indexed, vectors_upserted, and documents_discovered."""
         super().model_post_init(__context)
         if self.vectors_upserted > 0 and self.chunks_indexed == 0:
             self.chunks_indexed = self.vectors_upserted
         elif self.chunks_indexed > 0 and self.vectors_upserted == 0:
             self.vectors_upserted = self.chunks_indexed
+        if self.documents_discovered == 0 and self.documents_processed > 0:
+            self.documents_discovered = self.documents_processed
+
+    @property
+    def vectors_indexed(self) -> int:
+        """Alias for vectors_upserted / chunks_indexed count."""
+        return self.vectors_upserted
 
     @property
     def is_success(self) -> bool:

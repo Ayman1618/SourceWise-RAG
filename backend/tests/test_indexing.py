@@ -1165,6 +1165,108 @@ class TestPR17ProductionIndexingRequirements(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(auth_res[0].document_id, "sample-authentication-guide")
         self.assertIn("auth", auth_res[0].text.lower())
 
+    async def test_dry_run_mode_service(self) -> None:
+        """Verify dry-run mode chunks documents without calling embedding or vector store."""
+        mock_embedding = MagicMock(spec=BaseEmbeddingService)
+        mock_vector_store = MagicMock(spec=BaseVectorStoreService)
+        ingestion = DocumentIngestionService()
+
+        indexing = DocumentIndexingService(
+            embedding_service=mock_embedding,
+            vector_store_service=mock_vector_store,
+            chunking_service=ingestion,
+        )
+
+        docs = await ingestion.ingest(self.sample_docs_dir)
+        result = await indexing.index_documents(docs, dry_run=True)
+
+        self.assertEqual(result.documents_processed, len(docs))
+        self.assertGreater(result.chunks_created, 0)
+        self.assertEqual(result.embeddings_generated, 0)
+        self.assertEqual(result.vectors_upserted, 0)
+        self.assertEqual(result.chunks_indexed, 0)
+        self.assertEqual(result.point_ids, [])
+        self.assertTrue(result.is_success)
+
+        # Ensure embedding and vector store were never called
+        self.assertEqual(mock_embedding.embed_texts.call_count, 0)
+        self.assertEqual(mock_vector_store.store_chunks.call_count, 0)
+
+    def test_dry_run_cli_execution(self) -> None:
+        """Verify CLI dry run execution reports metrics without errors."""
+        import io
+        import contextlib
+
+        stdout_buf = io.StringIO()
+        with contextlib.redirect_stdout(stdout_buf):
+            execute_indexing_cli(["--dry-run"])
+
+        output = stdout_buf.getvalue()
+        self.assertIn("DRY RUN mode", output)
+        self.assertIn("--- Dry Run Summary ---", output)
+        self.assertIn("Documents processed:", output)
+        self.assertIn("Chunks created:", output)
+        self.assertIn("Embeddings generated: 0 (dry run)", output)
+        self.assertIn("Vectors indexed:      0 (dry run)", output)
+        self.assertIn("Failures:             0", output)
+
+    def test_secret_sanitization(self) -> None:
+        """Verify API keys and credentials are sanitized from errors and failure objects."""
+        from app.services.indexing import sanitize_error_message
+
+        raw_err = "Failed calling https://generativelanguage.googleapis.com with key=AIzaSyA12345678901234567890123456789012 and api_key=secret_xyz"
+        sanitized = sanitize_error_message(raw_err)
+        self.assertNotIn("AIzaSyA12345678901234567890123456789012", sanitized)
+        self.assertNotIn("secret_xyz", sanitized)
+        self.assertIn("[REDACTED", sanitized)
+
+    async def test_gemini_embedding_service_mock_integration(self) -> None:
+        """Verify GeminiEmbeddingService mock client produces 1536-dim vectors and integrates into indexing."""
+        from google.genai import types
+        from app.services.embedding import GeminiEmbeddingService
+
+        mock_genai_client = MagicMock()
+        mock_embedding_obj = MagicMock()
+        mock_embedding_obj.values = [0.01] * 1536
+        mock_response = MagicMock()
+        mock_response.embeddings = [mock_embedding_obj]
+        mock_genai_client.models.embed_content.return_value = mock_response
+
+        gemini_service = GeminiEmbeddingService(
+            api_key="mock-gemini-key",
+            model="gemini-embedding-2",
+            dimension=1536,
+            client=mock_genai_client,
+        )
+
+        vec = gemini_service.embed_text("Sample query text")
+        self.assertEqual(len(vec), 1536)
+        self.assertEqual(vec[0], 0.01)
+
+        vecs = gemini_service.embed_texts(["Sample chunk 1"])
+        self.assertEqual(len(vecs), 1)
+        self.assertEqual(len(vecs[0]), 1536)
+
+    def test_indexing_result_model_properties(self) -> None:
+        """Verify IndexingResult model fields, aliases, and properties."""
+        res = IndexingResult(
+            documents_discovered=3,
+            documents_processed=3,
+            chunks_created=10,
+            embeddings_generated=10,
+            vectors_upserted=10,
+            point_ids=["p1", "p2"],
+        )
+        self.assertEqual(res.documents_discovered, 3)
+        self.assertEqual(res.documents_processed, 3)
+        self.assertEqual(res.chunks_created, 10)
+        self.assertEqual(res.embeddings_generated, 10)
+        self.assertEqual(res.vectors_upserted, 10)
+        self.assertEqual(res.vectors_indexed, 10)
+        self.assertEqual(res.chunks_indexed, 10)
+        self.assertTrue(res.is_success)
+        self.assertFalse(res.has_failures)
+
 
 if __name__ == "__main__":
     unittest.main()

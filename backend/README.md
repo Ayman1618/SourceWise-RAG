@@ -416,21 +416,28 @@ The repository provides a simple, production-ready CLI command to discover sampl
 
 #### 1. Running Document Indexing
 
-Run the indexing pipeline using either the Python module entrypoint or the standalone runner script:
+Run the indexing pipeline using the CLI runner script, root script, or Python module entrypoint:
 
 ```bash
-# Recommended: Run via Python module
-python -m app.index
-
-# Alternative entrypoints:
-python -m app.cli.index
+# Recommended: Run via standalone script (from backend/ directory)
 python run_indexing.py
 
+# Or run from repository root:
+python scripts/index_documents.py
+python backend/run_indexing.py
+
+# Alternative module entrypoints:
+python -m app.index
+python -m app.cli.index
+
+# Dry-run mode (Preview parsing & chunking without calling Gemini or Qdrant):
+python run_indexing.py --dry-run
+
 # Offline execution (in-memory Qdrant + SHA-256 stub embeddings, zero external services or API keys required):
-python -m app.index --in-memory
+python run_indexing.py --in-memory
 
 # Custom document directory, collection name, and batch size:
-python -m app.index path/to/markdown/docs --collection custom_kb --batch-size 32
+python run_indexing.py path/to/markdown/docs --collection custom_kb --batch-size 32
 ```
 
 #### 2. Required Environment Variables

@@ -114,22 +114,57 @@ curl -i -X GET https://<your-backend-domain>/health/ready
 }
 ```
 
-### Step 9: Index Sample Documents
-Document indexing is decoupled from application startup to allow instantaneous container boots.
+### Step 9: Index Knowledge Base Documents
+Document indexing is decoupled from application startup to allow instantaneous container boots and zero-downtime updates.
 
-Run the indexing tool from your local terminal with production credentials:
+#### 1. Dry-Run Verification (Preview parsing without API/DB calls)
+```bash
+python backend/run_indexing.py --dry-run
+```
+
+#### 2. Production Indexing (Live Gemini Embedding + Qdrant Cloud)
+Run the production indexing tool with configured credentials:
 ```bash
 cd backend
 source .venv/bin/activate
 
+# Read from .env or supply explicitly:
 GEMINI_API_KEY="<your-gemini-key>" \
 QDRANT_URL="https://<cluster-id>.cloud.qdrant.io:6333" \
 QDRANT_API_KEY="<your-qdrant-key>" \
 python run_indexing.py ../data/sample-documents
 ```
 
+**Expected Output:**
+```text
+Discovering documents in: /path/to/data/sample-documents
+Discovered and parsed 3 document(s):
+  - [sample-api-rate-limits] 'API Rate Limits and Quota Management'
+  - [sample-authentication-guide] 'Product Authentication Guide'
+  - [sample-login-troubleshooting] 'Support Login Troubleshooting Guide'
+Chunked documents into 10 chunk(s).
+Generating dense embeddings using Gemini (gemini-embedding-2)...
+Upserting vector points into Qdrant collection 'sourcewise_documents'...
+
+--- Indexing Summary ---
+Documents processed:  3
+Chunks created:       10
+Embeddings generated: 10
+Vectors indexed:      10
+Failures:             0
+```
+
+#### 3. Verify Indexed Data in Qdrant
+Verify that vector points are present in the collection:
+```bash
+curl -X POST https://<cluster-id>.cloud.qdrant.io:6333/collections/sourcewise_documents/points/count \
+  -H "api-key: <your-qdrant-key>" \
+  -H "Content-Type: application/json" \
+  -d '{"exact": true}'
+```
+
 ### Step 10: Run an End-to-End Query
-Test end-to-end question answering and verified citation rendering:
+Test end-to-end question answering and verified citation rendering against your indexed knowledge base:
 ```bash
 curl -X POST https://<your-backend-domain>/api/v1/query \
   -H "Content-Type: application/json" \
