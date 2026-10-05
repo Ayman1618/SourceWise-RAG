@@ -20,6 +20,14 @@ out/
 backend/.env
 frontend/.env
 frontend/.env.local
+*.pem
+*.key
+*.p12
+*.pfx
+*service_account*.json
+*service-account*.json
+credentials.json
+
 
 # Git
 .git/

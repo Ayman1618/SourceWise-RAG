@@ -32,7 +32,7 @@ SourceWise RAG is built for zero mandatory API spending for development and demo
 - `frontend/` — Next.js and TypeScript web application.
 - `data/sample-documents/` — Non-sensitive sample documents for local development and testing.
 - `evaluation/` — Retrieval, grounding, citation, refusal, and evaluation resources.
-- `docs/` — Architecture documentation, technical decisions, and [Deployment Guide](docs/deployment.md).
+- `docs/` — Architecture documentation, technical decisions, [Deployment Guide](docs/deployment.md), and [Security Policy](docs/security.md).
 
 ## Deployment & Production Readiness
 
@@ -41,6 +41,7 @@ SourceWise RAG is fully containerized and production-ready for zero-cost demo de
 - **Backend Container**: Production-grade `Dockerfile` listening on `0.0.0.0` with dynamic `$PORT` support.
 - **Frontend Configuration**: Environment-driven `NEXT_PUBLIC_API_BASE_URL` without hardcoded URLs.
 - **Health Probes**: Isolated liveness probe (`GET /health`) and database readiness probe (`GET /health/ready`).
+- **Automated Security Scanner**: Built-in credential and secret protection check (`python scripts/security_check.py`).
 - **Smoke Testing**: Built-in verification script (`python scripts/smoke_test.py --base-url <url>`).
 
 ## Quickstart: Document Indexing & Running
@@ -48,9 +49,9 @@ SourceWise RAG is fully containerized and production-ready for zero-cost demo de
 ### 1. Configure Credentials
 Create a `.env` file in `backend/` or repo root:
 ```env
-GEMINI_API_KEY=your_google_ai_studio_api_key
+GEMINI_API_KEY=your_gemini_api_key_here
 QDRANT_URL=http://localhost:6333  # or your Qdrant Cloud URL
-QDRANT_API_KEY=your_qdrant_api_key_if_cloud
+QDRANT_API_KEY=your_qdrant_api_key_here  # optional for local, required for Qdrant Cloud
 QDRANT_COLLECTION_NAME=sourcewise_documents
 ```
 

@@ -61,12 +61,12 @@ Set the following environment variables in your backend service dashboard:
 | `BACKEND_HOST` | `0.0.0.0` | Host binding inside container |
 | `PORT` | `8000` | Platform port override (injected by host) |
 | `CORS_ORIGINS` | `https://your-frontend.vercel.app` | Allowed frontend origin(s) |
-| `GEMINI_API_KEY` | `<your-free-gemini-key>` | Google AI Studio free API key |
+| `GEMINI_API_KEY` | `your_gemini_api_key_here` | Google AI Studio free API key |
 | `GEMINI_GENERATION_MODEL` | `gemini-2.5-flash-lite` | Generation model |
 | `GEMINI_EMBEDDING_MODEL` | `gemini-embedding-2` | Embedding model (1536 dimensions) |
 | `GEMINI_EMBEDDING_DIMENSION` | `1536` | Vector size matching Qdrant |
 | `QDRANT_URL` | `https://<cluster-id>.cloud.qdrant.io:6333` | Qdrant Cloud cluster endpoint |
-| `QDRANT_API_KEY` | `<your-qdrant-api-key>` | Qdrant access token |
+| `QDRANT_API_KEY` | `your_qdrant_api_key_here` | Qdrant access token |
 | `QDRANT_COLLECTION_NAME` | `sourcewise_documents` | Target collection name |
 | `QDRANT_VECTOR_SIZE` | `1536` | Vector size |
 | `QDRANT_DISTANCE` | `Cosine` | Similarity distance |
@@ -129,9 +129,9 @@ cd backend
 source .venv/bin/activate
 
 # Read from .env or supply explicitly:
-GEMINI_API_KEY="<your-gemini-key>" \
+GEMINI_API_KEY="your_gemini_api_key_here" \
 QDRANT_URL="https://<cluster-id>.cloud.qdrant.io:6333" \
-QDRANT_API_KEY="<your-qdrant-key>" \
+QDRANT_API_KEY="your_qdrant_api_key_here" \
 python run_indexing.py ../data/sample-documents
 ```
 
@@ -197,3 +197,6 @@ The script performs an automated check of:
 - **No Hardcoded Secrets**: Secrets and credentials must only be injected via environment variables.
 - **Restricted Production CORS**: Configure `CORS_ORIGINS` to specify only trusted frontend domains. Avoid universal wildcards (`*`) in production.
 - **Error Detail Masking**: Internal server errors (HTTP 500) automatically mask stack traces and database credentials from client responses.
+- **Automated Secret Scan**: Run `python scripts/security_check.py` prior to publishing or committing changes.
+- **Security Policy & Checklist**: For comprehensive environment variable classifications, public vs secret guidelines, and rotation procedures, consult the **[Security Policy](security.md)**.
+

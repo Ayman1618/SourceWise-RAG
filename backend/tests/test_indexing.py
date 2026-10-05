@@ -1214,10 +1214,11 @@ class TestPR17ProductionIndexingRequirements(unittest.IsolatedAsyncioTestCase):
         """Verify API keys and credentials are sanitized from errors and failure objects."""
         from app.services.indexing import sanitize_error_message
 
-        raw_err = "Failed calling https://generativelanguage.googleapis.com with key=AIzaSyA12345678901234567890123456789012 and api_key=secret_xyz"
+        dummy_gemini_key = "AIzaSyFakeTestTokenForSanitization12345"
+        raw_err = f"Failed calling https://generativelanguage.googleapis.com with key={dummy_gemini_key} and api_key=dummy_test_secret_xyz"
         sanitized = sanitize_error_message(raw_err)
-        self.assertNotIn("AIzaSyA12345678901234567890123456789012", sanitized)
-        self.assertNotIn("secret_xyz", sanitized)
+        self.assertNotIn(dummy_gemini_key, sanitized)
+        self.assertNotIn("dummy_test_secret_xyz", sanitized)
         self.assertIn("[REDACTED", sanitized)
 
     async def test_gemini_embedding_service_mock_integration(self) -> None:

@@ -223,6 +223,9 @@ All settings are configured via environment variables or a `.env` file using Pyd
 | `QDRANT_DISTANCE` | `Cosine` | Distance metric for similarity (`Cosine`, `Dot`, `Euclid`) |
 | `QDRANT_TIMEOUT` | `10.0` | Connection timeout in seconds |
 
+> **Security Note:** Secrets like `GEMINI_API_KEY` and `QDRANT_API_KEY` must never be hardcoded or checked into source control. Run `python scripts/security_check.py` to verify the codebase against accidental credential exposure. For detailed classifications and policies, see the **[Security Policy & Checklist](../docs/security.md)**.
+
+
 
 ---
 
@@ -629,7 +632,7 @@ docker build -t sourcewise-rag-backend backend/
 docker run -d \
   --name sourcewise-rag-backend \
   -p 8000:8000 \
-  -e GEMINI_API_KEY="your-gemini-key" \
+  -e GEMINI_API_KEY="your_gemini_api_key_here" \
   -e QDRANT_URL="http://host.docker.internal:6333" \
   -e CORS_ORIGINS="http://localhost:3000" \
   sourcewise-rag-backend
