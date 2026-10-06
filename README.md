@@ -93,3 +93,5 @@ For complete step-by-step instructions, see the **[Production Deployment Guide](
 
 - **Om Bankar** — Frontend & Application Integration  
   Responsible for the Next.js interface, chat experience, citation rendering, API integration, document upload flow, and frontend testing.
+
+---
