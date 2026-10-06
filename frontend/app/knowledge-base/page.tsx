@@ -2,7 +2,8 @@
 
 /**
  * SourceWise RAG Knowledge Base Catalog Page Component
- * Renders enterprise document catalog, search, and multi-criteria filters (PR 29).
+ * Renders enterprise document catalog, search, and multi-criteria filters.
+ * Refined for PR 31 frontend knowledge exploration.
  */
 
 import React, { useState, useMemo } from "react";
