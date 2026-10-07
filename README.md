@@ -81,7 +81,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/query \
   -d '{"query": "How do I troubleshoot login failures?", "top_k": 3}'
 ```
 
-For complete step-by-step instructions, see the **[Production Deployment Guide](docs/deployment.md)** and **[Backend Documentation](backend/README.md)**.
+For complete step-by-step instructions, see the **[Production Deployment Guide](docs/deployment.md)**, **[Backend Documentation](backend/README.md)**, and **[Security Policy](docs/security.md)**.
 
 ## Team
 
