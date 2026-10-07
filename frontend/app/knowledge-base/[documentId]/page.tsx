@@ -1,6 +1,7 @@
 /**
  * SourceWise RAG Document Detail Page Component
  * Renders full document text preview, provenance metadata, and Ask CTA.
+ * Refined for PR 33 frontend document exploration release.
  */
 
 import React from "react";
