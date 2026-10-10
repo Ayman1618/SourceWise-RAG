@@ -3,6 +3,7 @@
 /**
  * SourceWise RAG Ask Page Component
  * Connects the question input interface to the POST /api/v1/query backend API.
+ * Refined for PR 35 query orchestration integration release.
  */
 
 import React, { useState } from "react";
