@@ -185,16 +185,55 @@ export async function queryRAG(
 
     if (!response.ok) {
       let errorDetail = "";
+      const errorType: "validation_error" | "backend_error" =
+        response.status === 422 || response.status === 400
+          ? "validation_error"
+          : "backend_error";
+
       try {
         const errorJson = await response.json();
-        errorDetail = errorJson.detail || errorJson.message || "";
+        if (typeof errorJson.detail === "string") {
+          errorDetail = errorJson.detail;
+        } else if (Array.isArray(errorJson.detail)) {
+          // Format validation error list from FastAPI/Pydantic without [object Object]
+          errorDetail = errorJson.detail
+            .map((item: any) => {
+              if (typeof item === "string") return item;
+              if (item && typeof item === "object") {
+                const loc = Array.isArray(item.loc) ? item.loc.filter((p: any) => p !== "body").join(".") : "";
+                const msg = item.msg || JSON.stringify(item);
+                return loc ? `${loc}: ${msg}` : msg;
+              }
+              return String(item);
+            })
+            .join("; ");
+        } else if (errorJson.detail && typeof errorJson.detail === "object") {
+          errorDetail = JSON.stringify(errorJson.detail);
+        } else if (typeof errorJson.message === "string") {
+          errorDetail = errorJson.message;
+        }
       } catch {
-        errorDetail = await response.text();
+        try {
+          const rawText = await response.text();
+          errorDetail = rawText.slice(0, 300);
+        } catch {
+          errorDetail = "";
+        }
       }
 
+      const safeMessage =
+        errorDetail.trim() ||
+        (response.status === 422
+          ? "Request validation failed. Please check query length and parameters."
+          : response.status === 503
+          ? "Service dependency unavailable. Vector database or models may be unreachable."
+          : response.status >= 500
+          ? "Internal server error occurred while processing the query."
+          : `Backend API returned status HTTP ${response.status}`);
+
       throw new RAGApiError(
-        errorDetail || `Backend API returned status HTTP ${response.status}`,
-        "backend_error",
+        safeMessage,
+        errorType,
         response.status
       );
     }

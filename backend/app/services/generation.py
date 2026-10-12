@@ -209,11 +209,35 @@ class GeminiGenerationService(BaseGenerationService):
             response_mime_type="application/json",
         )
 
-        res = self.client.models.generate_content(
-            model=model_name,
-            contents=user_prompt,
-            config=config,
-        )
+        try:
+            res = self.client.models.generate_content(
+                model=model_name,
+                contents=user_prompt,
+                config=config,
+            )
+        except Exception as exc:
+            # Fallback if primary model is no longer available / retired
+            if "404" in str(exc) and ("not found" in str(exc).lower() or "no longer available" in str(exc).lower()):
+                fallback_models = ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-2.5-flash"]
+                res = None
+                for fb in fallback_models:
+                    if fb == model_name:
+                        continue
+                    try:
+                        res = self.client.models.generate_content(
+                            model=fb,
+                            contents=user_prompt,
+                            config=config,
+                        )
+                        model_name = fb
+                        break
+                    except Exception:
+                        continue
+                if res is None:
+                    raise
+            else:
+                raise
+
         if inspect.iscoroutine(res):
             response = await res
         else:

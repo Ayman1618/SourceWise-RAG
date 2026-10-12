@@ -36,14 +36,27 @@ async def health_check() -> HealthResponse:
 async def readiness_check(
     vector_store: BaseVectorStoreService = Depends(get_vector_store_service),
 ) -> ReadinessResponse:
-    """Check readiness by verifying vector store connectivity."""
+    """Check readiness by verifying vector store connectivity and collection status."""
     try:
         is_connected = vector_store.collection_exists()
+        if not is_connected:
+            col_name = getattr(vector_store, "collection_name", "sourcewise_documents")
+            logger.warning("Readiness check: Vector store reachable but collection '%s' does not exist.", col_name)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Vector collection '{col_name}' does not exist.",
+            )
         return ReadinessResponse(
             status="ready",
             database="connected",
-            details={"collection_checked": True, "collection_exists": is_connected},
+            details={
+                "collection_checked": True,
+                "collection_exists": True,
+                "collection_name": getattr(vector_store, "collection_name", "sourcewise_documents"),
+            },
         )
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.warning("Readiness check failed on vector store dependency: %s", exc)
         raise HTTPException(

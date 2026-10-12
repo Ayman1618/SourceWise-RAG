@@ -125,8 +125,63 @@ async function runTests() {
     }
   }
 
+  // Test 7: HTTP 422 Validation Error Detail Parsing (No [object Object])
+  {
+    console.log("Test 7: Testing HTTP 422 Validation Error Detail Parsing...");
+    const globalFetch = global.fetch;
+    try {
+      (global as any).fetch = async () => ({
+        ok: false,
+        status: 422,
+        json: async () => ({
+          detail: [
+            { loc: ["body", "query"], msg: "ensure this value has at most 1000 characters", type: "value_error" },
+          ],
+        }),
+      });
+
+      await queryRAG("Test query");
+      assert(false, "422 response should throw RAGApiError");
+    } catch (err: any) {
+      assert(err instanceof RAGApiError, "Error must be instance of RAGApiError");
+      assert(err.type === "validation_error", "Error type must be validation_error");
+      assert(err.statusCode === 422, "Status code must be 422");
+      assert(!err.message.includes("[object Object]"), "Message must not contain [object Object]");
+      assert(err.message.includes("1000 characters"), "Message must contain readable validation error");
+      console.log("✓ Test 7 Passed: HTTP 422 error parsing verified without [object Object].\n");
+    } finally {
+      global.fetch = globalFetch;
+    }
+  }
+
+  // Test 8: HTTP 500 and 503 Server / Dependency Error Parsing
+  {
+    console.log("Test 8: Testing HTTP 500 and 503 Dependency Error Parsing...");
+    const globalFetch = global.fetch;
+    try {
+      (global as any).fetch = async () => ({
+        ok: false,
+        status: 503,
+        json: async () => ({
+          detail: "Vector database dependency is currently unreachable.",
+        }),
+      });
+
+      await queryRAG("Test query");
+      assert(false, "503 response should throw RAGApiError");
+    } catch (err: any) {
+      assert(err instanceof RAGApiError, "Error must be instance of RAGApiError");
+      assert(err.type === "backend_error", "Error type must be backend_error");
+      assert(err.statusCode === 503, "Status code must be 503");
+      assert(err.message.includes("Vector database dependency is currently unreachable"), "Message must contain 503 detail");
+      console.log("✓ Test 8 Passed: HTTP 503 error parsing verified.\n");
+    } finally {
+      global.fetch = globalFetch;
+    }
+  }
+
   console.log("=========================================");
-  console.log("ALL 6 RAG QUERY API TESTS PASSED ");
+  console.log("ALL 8 RAG QUERY API TESTS PASSED ");
   console.log("=========================================");
 }
 

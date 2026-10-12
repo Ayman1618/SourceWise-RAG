@@ -75,36 +75,61 @@ interface ErrorNoticeProps {
 
 export function ErrorNotice({ errorType, errorMessage, onRetry }: ErrorNoticeProps) {
   const isNetwork = errorType === "network_error";
+  const isValidation = errorType === "validation_error";
 
   return (
     <div
       className={`border rounded-lg p-5 text-slate-800 space-y-3 shadow-xs ${
-        isNetwork ? "bg-slate-900 border-slate-800 text-white" : "bg-red-50 border-red-200"
+        isNetwork
+          ? "bg-slate-900 border-slate-800 text-white"
+          : isValidation
+          ? "bg-amber-50 border-amber-200"
+          : "bg-red-50 border-red-200"
       }`}
     >
       <div className="flex items-start space-x-3">
         {isNetwork ? (
           <WifiOff className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+        ) : isValidation ? (
+          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
         ) : (
           <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
         )}
         <div>
-          <h4 className={`text-sm font-bold ${isNetwork ? "text-white" : "text-red-900"}`}>
-            {isNetwork ? "Backend API Unreachable" : "Query Processing Error"}
+          <h4
+            className={`text-sm font-bold ${
+              isNetwork ? "text-white" : isValidation ? "text-amber-900" : "text-red-900"
+            }`}
+          >
+            {isNetwork
+              ? "Backend API Unreachable"
+              : isValidation
+              ? "Invalid Query Request"
+              : "Query Processing Error"}
           </h4>
-          <p className={`mt-1 text-sm leading-relaxed ${isNetwork ? "text-slate-300" : "text-red-800"}`}>
+          <p
+            className={`mt-1 text-sm leading-relaxed ${
+              isNetwork ? "text-slate-300" : isValidation ? "text-amber-800" : "text-red-800"
+            }`}
+          >
             {errorMessage || "An error occurred while processing your question."}
           </p>
         </div>
       </div>
       <div
         className={`pt-2.5 border-t flex items-center justify-between flex-wrap gap-2 ${
-          isNetwork ? "border-slate-800 text-slate-400 text-xs" : "border-red-200/60 text-xs text-red-700"
+          isNetwork
+            ? "border-slate-800 text-slate-400 text-xs"
+            : isValidation
+            ? "border-amber-200/60 text-xs text-amber-700"
+            : "border-red-200/60 text-xs text-red-700"
         }`}
       >
         <span>
           {isNetwork
             ? "Ensure the backend FastAPI service is running at NEXT_PUBLIC_API_BASE_URL."
+            : isValidation
+            ? "Please adjust your question to satisfy validation requirements (e.g. max 1000 characters)."
             : "Request failed. Check query input or backend logs."}
         </span>
         <button

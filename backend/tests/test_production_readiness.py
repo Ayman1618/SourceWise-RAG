@@ -97,6 +97,22 @@ class TestHealthAndReadinessEndpoints(unittest.TestCase):
 
         self.app.dependency_overrides.clear()
 
+    def test_readiness_endpoint_failure_when_collection_missing(self) -> None:
+        """Verify /health/ready returns 503 Service Unavailable when vector collection does not exist."""
+        mock_vector_store = MagicMock(spec=BaseVectorStoreService)
+        mock_vector_store.collection_exists.return_value = False
+        mock_vector_store.collection_name = "sourcewise_documents"
+
+        self.app.dependency_overrides[get_vector_store_service] = lambda: mock_vector_store
+
+        response = self.client.get("/health/ready")
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        data = response.json()
+        self.assertIn("detail", data)
+        self.assertIn("Vector collection 'sourcewise_documents' does not exist", data["detail"])
+
+        self.app.dependency_overrides.clear()
+
 
 class TestCORSIntegration(unittest.TestCase):
     """Test suite verifying CORS middleware behavior with configured origins."""

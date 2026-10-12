@@ -389,10 +389,13 @@ class DocumentIndexingService(BaseIndexingService):
             try:
                 vectors = self.embedding_service.embed_texts(texts)
             except Exception as exc:
-                sanitized_msg = sanitize_error_message(f"Embedding generation failed: {exc}")
-                if isinstance(exc, ValueError):
-                    raise ValueError(sanitized_msg) from exc
-                raise IndexingError(sanitized_msg) from exc
+                if "mismatch" in str(exc).lower() and hasattr(self.embedding_service, "embed_text"):
+                    vectors = [self.embedding_service.embed_text(t) for t in texts]
+                else:
+                    sanitized_msg = sanitize_error_message(f"Embedding generation failed: {exc}")
+                    if isinstance(exc, ValueError):
+                        raise ValueError(sanitized_msg) from exc
+                    raise IndexingError(sanitized_msg) from exc
 
             # 2. Parity check between chunks and vectors
             if len(vectors) != len(batch_chunks):
