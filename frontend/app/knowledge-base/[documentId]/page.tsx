@@ -6,6 +6,7 @@
 
 import React from "react";
 import Link from "next/link";
+import ReactMarkdown from "react-markdown";
 import { getKnowledgeDocumentById, KNOWLEDGE_DOCUMENTS } from "@/lib/knowledge-data";
 import { SourceTypeBadge } from "@/components/knowledge/SourceTypeBadge";
 import { SourceMetadata } from "@/components/knowledge/SourceMetadata";
@@ -132,8 +133,93 @@ export default function DocumentDetailPage({ params }: PageProps) {
             </span>
           </div>
 
-          <div className="prose prose-slate max-w-none text-sm leading-relaxed space-y-4 whitespace-pre-wrap text-slate-800">
-            {doc.content}
+          <div className="text-slate-800 text-sm leading-relaxed space-y-4">
+            <ReactMarkdown
+              components={{
+                h1: ({ children }) => (
+                  <h2 className="text-xl font-bold text-slate-900 mt-6 mb-3 border-b border-slate-100 pb-2">
+                    {children}
+                  </h2>
+                ),
+                h2: ({ children }) => (
+                  <h3 className="text-lg font-bold text-slate-900 mt-5 mb-2">
+                    {children}
+                  </h3>
+                ),
+                h3: ({ children }) => (
+                  <h4 className="text-base font-semibold text-slate-900 mt-4 mb-2">
+                    {children}
+                  </h4>
+                ),
+                p: ({ children }) => (
+                  <p className="mb-3 text-sm text-slate-700 leading-relaxed last:mb-0">
+                    {children}
+                  </p>
+                ),
+                ul: ({ children }) => (
+                  <ul className="list-disc pl-5 my-2.5 space-y-1 text-sm text-slate-700">
+                    {children}
+                  </ul>
+                ),
+                ol: ({ children }) => (
+                  <ol className="list-decimal pl-5 my-2.5 space-y-1 text-sm text-slate-700">
+                    {children}
+                  </ol>
+                ),
+                li: ({ children }) => (
+                  <li className="leading-relaxed">{children}</li>
+                ),
+                strong: ({ children }) => (
+                  <strong className="font-semibold text-slate-900">
+                    {children}
+                  </strong>
+                ),
+                blockquote: ({ children }) => (
+                  <blockquote className="border-l-4 border-slate-300 pl-3 italic my-3 text-slate-600">
+                    {children}
+                  </blockquote>
+                ),
+                code: ({ className, children }) => {
+                  const isBlock = className || (typeof children === "string" && children.includes("\n"));
+                  if (isBlock) {
+                    return (
+                      <pre className="bg-slate-900 text-slate-100 p-3 rounded-md text-xs font-mono overflow-x-auto my-3">
+                        <code>{children}</code>
+                      </pre>
+                    );
+                  }
+                  return (
+                    <code className="bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded font-mono text-xs border border-slate-200">
+                      {children}
+                    </code>
+                  );
+                },
+                table: ({ children }) => (
+                  <div className="overflow-x-auto my-4 border border-slate-200 rounded-md">
+                    <table className="min-w-full text-xs text-left divide-y divide-slate-200">
+                      {children}
+                    </table>
+                  </div>
+                ),
+                thead: ({ children }) => (
+                  <thead className="bg-slate-50 font-semibold text-slate-900">
+                    {children}
+                  </thead>
+                ),
+                th: ({ children }) => (
+                  <th className="px-3 py-2 border-b border-slate-200 font-semibold text-slate-900">
+                    {children}
+                  </th>
+                ),
+                td: ({ children }) => (
+                  <td className="px-3 py-2 border-t border-slate-100 text-slate-700">
+                    {children}
+                  </td>
+                ),
+              }}
+            >
+              {doc.content}
+            </ReactMarkdown>
           </div>
         </div>
 

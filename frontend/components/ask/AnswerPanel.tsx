@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
+import ReactMarkdown from "react-markdown";
 import { Citation, EvidenceStatus } from "@/lib/types/rag";
 import { ShieldCheck, Copy, Check, Sparkles, AlertCircle } from "lucide-react";
 
@@ -10,6 +11,59 @@ interface AnswerPanelProps {
   confidenceScore?: number | null;
   evidenceStatus?: EvidenceStatus;
   onSelectCitation: (citationId: string) => void;
+}
+
+/**
+ * Preprocesses markdown text so that citation brackets like:
+ * [sample-login-troubleshooting#chunk_0], [cite_1], or [1]
+ * are turned into markdown citation links: [cite_1](citation:cite_1).
+ */
+function preprocessCitations(text: string, citations: Citation[]): string {
+  if (!text) return "";
+
+  // Match bracketed citation references that are NOT part of an existing markdown link [text](url)
+  return text.replace(/\[([^\]]+)\](?!\()/g, (match, inner) => {
+    // If it's a list like "chunk_0, chunk_1"
+    const parts = inner.split(/,\s*/);
+    const converted = parts.map((rawPart: string) => {
+      const part = rawPart.trim();
+
+      // 1. Direct match on citation_id (e.g. cite_1, 1)
+      let found = citations.find(
+        (c) => c.citation_id === part || c.citation_id === `cite_${part}`
+      );
+
+      // 2. Match on chunk_id (e.g. sample-login-troubleshooting#chunk_0)
+      if (!found) {
+        found = citations.find(
+          (c) => c.chunk_id === part || c.chunk_id.includes(part) || part.includes(c.chunk_id)
+        );
+      }
+
+      if (found) {
+        return `[${found.citation_id}](citation:${found.citation_id})`;
+      }
+
+      // 3. Fallback for numeric or cite_ format even if citations array is empty
+      if (/^\d+$/.test(part) || /^cite_\d+$/.test(part)) {
+        return `[${part}](citation:${part})`;
+      }
+
+      // 4. Fallback for raw chunk tags (e.g. #chunk_0)
+      if (part.includes("#chunk_") || part.includes("chunk_")) {
+        const shortLabel = part.split("#").pop() || part;
+        return `[${shortLabel}](citation:${part})`;
+      }
+
+      return null;
+    });
+
+    if (converted.every((item: string | null) => item !== null)) {
+      return converted.join(" ");
+    }
+
+    return match;
+  });
 }
 
 export function AnswerPanel({
@@ -27,40 +81,9 @@ export function AnswerPanel({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  /**
-   * Helper function to parse citation references like [1], [2], or [cite_1]
-   * and render them as interactive buttons linked to the evidence items.
-   */
-  const renderFormattedAnswer = (text: string) => {
-    const parts = text.split(/(\[\w+\])/g);
-
-    return parts.map((part, idx) => {
-      const match = part.match(/^\[(\w+)\]$/);
-      if (match) {
-        const citationId = match[1];
-        const exists = citations.some(
-          (c) => c.citation_id === citationId || c.citation_id === `cite_${citationId}`
-        );
-
-        return (
-          <button
-            key={idx}
-            type="button"
-            onClick={() => onSelectCitation(citationId)}
-            title={`View Evidence [${citationId}]`}
-            className={`inline-flex items-center px-1.5 py-0.5 mx-0.5 text-xs font-mono font-bold rounded transition-colors focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-1 ${
-              exists
-                ? "bg-brand-900 hover:bg-brand-800 text-white shadow-xs"
-                : "bg-slate-800 hover:bg-slate-700 text-white"
-            }`}
-          >
-            [{citationId}]
-          </button>
-        );
-      }
-      return <span key={idx}>{part}</span>;
-    });
-  };
+  const processedContent = useMemo(() => {
+    return preprocessCitations(answer, citations);
+  }, [answer, citations]);
 
   return (
     <div className="bg-white rounded-lg border border-slate-200 p-4 sm:p-6 shadow-sm space-y-4">
@@ -115,9 +138,97 @@ export function AnswerPanel({
         </div>
       </div>
 
-      {/* Answer Content */}
-      <div className="text-slate-800 text-base leading-relaxed font-normal">
-        {renderFormattedAnswer(answer)}
+      {/* Formatted Markdown Answer Content */}
+      <div className="text-slate-800 text-sm sm:text-base leading-relaxed font-normal">
+        <ReactMarkdown
+          components={{
+            p: ({ children }) => (
+              <p className="mb-3 leading-relaxed text-slate-800 last:mb-0">
+                {children}
+              </p>
+            ),
+            strong: ({ children }) => (
+              <strong className="font-semibold text-slate-900">
+                {children}
+              </strong>
+            ),
+            em: ({ children }) => (
+              <em className="italic text-slate-800">{children}</em>
+            ),
+            ul: ({ children }) => (
+              <ul className="list-disc pl-5 my-2.5 space-y-1.5 text-slate-800">
+                {children}
+              </ul>
+            ),
+            ol: ({ children }) => (
+              <ol className="list-decimal pl-5 my-2.5 space-y-1.5 text-slate-800">
+                {children}
+              </ol>
+            ),
+            li: ({ children }) => (
+              <li className="leading-relaxed">{children}</li>
+            ),
+            blockquote: ({ children }) => (
+              <blockquote className="border-l-4 border-slate-300 pl-3 italic my-2.5 text-slate-700">
+                {children}
+              </blockquote>
+            ),
+            code: ({ className, children }) => {
+              const isBlock = className || (typeof children === "string" && children.includes("\n"));
+              if (isBlock) {
+                return (
+                  <pre className="bg-slate-900 text-slate-100 p-3 rounded-md text-xs font-mono overflow-x-auto my-3">
+                    <code>{children}</code>
+                  </pre>
+                );
+              }
+              return (
+                <code className="bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded font-mono text-xs border border-slate-200">
+                  {children}
+                </code>
+              );
+            },
+            a: ({ href, children }) => {
+              if (href?.startsWith("citation:")) {
+                const citationId = href.replace("citation:", "");
+                const exists = citations.some(
+                  (c) =>
+                    c.citation_id === citationId ||
+                    c.citation_id === `cite_${citationId}` ||
+                    c.chunk_id === citationId
+                );
+
+                return (
+                  <button
+                    type="button"
+                    onClick={() => onSelectCitation(citationId)}
+                    title={`View Supporting Evidence [${citationId}]`}
+                    className={`inline-flex items-center px-1.5 py-0.2 mx-0.5 text-xs font-mono font-bold rounded transition-colors focus:outline-none focus:ring-2 focus:ring-brand-900 focus:ring-offset-1 align-baseline ${
+                      exists
+                        ? "bg-brand-900 hover:bg-brand-800 text-white shadow-2xs"
+                        : "bg-slate-800 hover:bg-slate-700 text-white"
+                    }`}
+                  >
+                    [{children}]
+                  </button>
+                );
+              }
+
+              return (
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-brand-700 hover:text-brand-900 underline font-medium transition-colors"
+                >
+                  {children}
+                </a>
+              );
+            },
+          }}
+        >
+          {processedContent}
+        </ReactMarkdown>
       </div>
 
       {/* Footer Info */}
