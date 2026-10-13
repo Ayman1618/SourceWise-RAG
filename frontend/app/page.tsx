@@ -34,15 +34,13 @@ export default function Home() {
             <ArrowRight className="w-4 h-4" />
           </Link>
 
-          <button
-            type="button"
-            disabled
-            className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-6 py-3 rounded-md bg-white text-slate-400 font-medium text-sm border border-slate-200 cursor-not-allowed shadow-xs"
-            title="Knowledge Base browsing coming soon"
+          <Link
+            href="/knowledge-base"
+            className="w-full sm:w-auto inline-flex items-center justify-center space-x-2 px-6 py-3 rounded-md bg-white hover:bg-slate-50 text-slate-700 font-medium text-sm border border-slate-300 transition-colors duration-150 shadow-xs focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2"
           >
-            <BookOpen className="w-4 h-4 text-slate-300" />
-            <span>Knowledge Base (Soon)</span>
-          </button>
+            <BookOpen className="w-4 h-4 text-slate-500" />
+            <span>Browse Knowledge Base</span>
+          </Link>
         </div>
 
         {/* Evidence-First Callout Banner */}
