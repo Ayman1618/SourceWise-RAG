@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ShieldCheck, MessageSquare, BookOpen, LogIn, UserPlus } from "lucide-react";
+import { ShieldCheck, MessageSquare, BookOpen } from "lucide-react";
 
 export function Header() {
   const pathname = usePathname();
@@ -61,22 +61,12 @@ export function Header() {
           </Link>
         </nav>
 
-        {/* Auth Actions */}
+        {/* System Status Indicator */}
         <div className="hidden sm:flex items-center space-x-2 text-xs">
-          <Link
-            href="/login"
-            className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded text-slate-700 hover:bg-slate-100 font-medium transition-colors"
-          >
-            <LogIn className="w-3.5 h-3.5 text-slate-500" />
-            <span>Sign In</span>
-          </Link>
-          <Link
-            href="/signup"
-            className="inline-flex items-center space-x-1 px-3 py-1.5 rounded bg-brand-900 text-white hover:bg-brand-800 font-medium transition-colors shadow-xs"
-          >
-            <UserPlus className="w-3.5 h-3.5" />
-            <span>Sign Up</span>
-          </Link>
+          <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium shadow-2xs">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>Vector Engine Online</span>
+          </span>
         </div>
       </div>
     </header>
